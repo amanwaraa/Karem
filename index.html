@@ -760,13 +760,14 @@
       width:44px;
       height:44px;
       border-radius:16px;
-      background:linear-gradient(135deg,#dbeafe,#eff6ff);
-      color:#1d4ed8;
+      background:linear-gradient(135deg,var(--primary),var(--primary2));
+      color:#ffffff;
       display:flex;
       align-items:center;
       justify-content:center;
       font-size:20px;
       margin-bottom:10px;
+      box-shadow:0 12px 24px rgba(5,150,105,.22);
     }
 
     .product-name{
@@ -4030,7 +4031,7 @@
               const ctx = canvas.getContext("2d");
               ctx.clearRect(0, 0, canvas.width, canvas.height);
               ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-              resolve(canvas.toDataURL("image/png"));
+              resolve(canvas.toDataURL("image/jpeg", .82));
             } catch {
               resolve(raw);
             }
@@ -9165,7 +9166,7 @@
           frame.contentWindow.focus();
           frame.contentWindow.print();
         } finally {
-          setTimeout(() => frame.remove(), 1200);
+          setTimeout(() => frame.remove(), 650);
         }
       };
 
@@ -9217,7 +9218,7 @@
       const rect = element.getBoundingClientRect();
       const width = Math.max(320, Math.ceil(element.scrollWidth || rect.width || 900));
       const height = Math.max(120, Math.ceil(element.scrollHeight || rect.height || 700));
-      const scale = window.innerWidth <= 640 ? 1.0 : 1.1;
+      const scale = window.innerWidth <= 640 ? 0.85 : 0.95;
 
       try {
         return await html2canvas(element, {
@@ -9226,7 +9227,7 @@
           allowTaint: true,
           backgroundColor: "#ffffff",
           logging: false,
-          imageTimeout: 220,
+          imageTimeout: 120,
           removeContainer: true,
           foreignObjectRendering: false,
           scrollX: 0,
@@ -13891,7 +13892,7 @@
             const ctx = canvas.getContext("2d");
             ctx.clearRect(0,0,canvas.width,canvas.height);
             ctx.drawImage(img,0,0,canvas.width,canvas.height);
-            resolve(canvas.toDataURL("image/png"));
+            resolve(canvas.toDataURL("image/jpeg", .82));
           }catch{ resolve(raw); }
         };
         img.onerror = () => resolve(raw);
@@ -14539,8 +14540,8 @@
   async function saveRequest(){flow.accountName=$('oskarPrimeSafeAccount')?.value.trim()||'';flow.phone=$('oskarPrimeSafePhone')?.value.trim()||'';if(!flow.accountName)return toast('اكتب اسم الحساب الذي حولت منه');if(!flow.phone)return toast('اكتب رقم الجوال أو الواتساب');const req={id:'prime_'+Date.now()+'_'+Math.random().toString(16).slice(2),code:flow.code,planId:flow.plan.id,planLabel:flow.plan.label,amount:flow.plan.amount,currency:'ILS',methodId:flow.method,methodTitle:METHODS[flow.method].title,accountName:flow.accountName,phone:flow.phone,status:'pending',source:trialActive()?'trial_local_only':'main',createdAt:Date.now(),updatedAt:Date.now(),userAgent:navigator.userAgent||'',appUrl:location.href};let sent=false;if(!trialActive()&&navigator.onLine&&window.db&&window.ref&&window.set){try{const root=window.CASHIER_FIREBASE_CONFIG?.firebaseRoot||window.FIREBASE_ROOT||'cashier_units_pro_default';await window.set(window.ref(window.db,root+'/primePurchaseRequests/'+req.id),req);sent=true}catch(e){console.warn(e)}}try{const arr=JSON.parse(localStorage.getItem('oskar_prime_purchase_requests_local_v3')||'[]');arr.push(req);localStorage.setItem('oskar_prime_purchase_requests_local_v3',JSON.stringify(arr))}catch{}flow.saved=true;toast(sent?'تم حفظ طلب الشراء وإرساله للمراجعة':'تم حفظ الطلب محليًا، استخدم واتساب لتسريع القبول');renderPage()}
   document.addEventListener('click',function(e){const open=e.target.closest('#oskarPrimeBuyLoginBtn,#oskarPrimeBuyHomeBtn,.oskar-prime-open-btn');if(open){e.preventDefault();e.stopImmediatePropagation();openPrime();return}if(e.target.closest('#oskarPrimeSafeBack')){e.preventDefault();e.stopImmediatePropagation();closePrime();return}const p=e.target.closest('[data-safe-plan]');if(p){e.preventDefault();flow.plan=PLANS.find(x=>x.id===p.dataset.safePlan);go(2);return}const m=e.target.closest('[data-safe-method]');if(m){e.preventDefault();flow.method=m.dataset.safeMethod;go(3);return}const g=e.target.closest('[data-safe-go]');if(g){e.preventDefault();go(Number(g.dataset.safeGo));return}if(e.target.closest('[data-safe-paid]')){e.preventDefault();if(!flow.plan||!flow.method)return toast('اختر الخطة وطريقة الدفع أولاً');go(4);return}if(e.target.closest('#imageInvoiceBtn')){e.preventDefault();e.stopImmediatePropagation();downloadInvoiceImage();}},true);
   document.addEventListener('submit',function(e){if(e.target&&e.target.id==='oskarPrimeSafeConfirmForm'){e.preventDefault();e.stopImmediatePropagation();saveRequest()}},true);
-  async function waitImages(root){await Promise.all(Array.from(root.querySelectorAll('img')).map(img=>new Promise(res=>{if(img.complete&&img.naturalWidth>0)return res();img.onload=()=>res();img.onerror=()=>res();setTimeout(res,1000)})))}
-  async function downloadInvoiceImage(){const src=$('invoiceViewBox')||document.querySelector('.invoice-paper')?.parentElement;if(!src)return toast('افتح الفاتورة أولاً');if(typeof html2canvas!=='function')return toast('مكتبة تحميل الصورة لم تجهز بعد');applyLogos(true);const holder=document.createElement('div');holder.style.cssText='position:fixed;right:-12000px;top:0;width:840px;background:#fff;z-index:-1;opacity:1;pointer-events:none;direction:rtl';const clone=src.cloneNode(true);clone.style.cssText='width:840px;background:#fff;direction:rtl;transform:none!important;filter:none!important;box-shadow:none!important';clone.querySelectorAll('.invoice-logo,img.shop-logo').forEach(img=>{img.src=bestLogo(true);img.removeAttribute('crossorigin');img.style.width='54px';img.style.height='54px';img.style.maxWidth='54px';img.style.maxHeight='54px';img.style.objectFit='cover'});clone.querySelectorAll('*').forEach(el=>{el.style.transform='none';el.style.filter='none';el.style.animation='none';el.style.transition='none'});holder.appendChild(clone);document.body.appendChild(holder);await waitImages(clone);try{const canvas=await html2canvas(clone,{backgroundColor:'#ffffff',scale:2,useCORS:false,allowTaint:false,logging:false,scrollX:0,scrollY:0,windowWidth:900,width:clone.scrollWidth,height:clone.scrollHeight});const a=document.createElement('a');a.download='invoice-'+Date.now()+'.png';a.href=canvas.toDataURL('image/png');a.click();toast('تم تحميل صورة الفاتورة كما تظهر')}catch(err){console.error(err);toast('تعذر تحميل صورة الفاتورة، جرّب مرة أخرى')}finally{holder.remove()}}
+  async function waitImages(root){await Promise.all(Array.from(root.querySelectorAll('img')).map(img=>new Promise(res=>{if(img.complete&&img.naturalWidth>0)return res();img.onload=()=>res();img.onerror=()=>res();setTimeout(res,180)})))}
+  async function downloadInvoiceImage(){const __btn=$('imageInvoiceBtn');if(__btn){__btn.classList.add('oskar-export-busy');__btn.disabled=true;}const src=$('invoiceViewBox')||document.querySelector('.invoice-paper')?.parentElement;if(!src){if(__btn){__btn.classList.remove('oskar-export-busy');__btn.disabled=false;}return toast('افتح الفاتورة أولاً');}if(typeof html2canvas!=='function'){if(__btn){__btn.classList.remove('oskar-export-busy');__btn.disabled=false;}return toast('مكتبة تحميل الصورة لم تجهز بعد');}applyLogos(true);const holder=document.createElement('div');holder.style.cssText='position:fixed;right:-12000px;top:0;width:840px;background:#fff;z-index:-1;opacity:1;pointer-events:none;direction:rtl';const clone=src.cloneNode(true);clone.style.cssText='width:840px;background:#fff;direction:rtl;transform:none!important;filter:none!important;box-shadow:none!important';clone.querySelectorAll('.invoice-logo,img.shop-logo').forEach(img=>{img.src=bestLogo(true);img.removeAttribute('crossorigin');img.style.width='54px';img.style.height='54px';img.style.maxWidth='54px';img.style.maxHeight='54px';img.style.objectFit='cover'});clone.querySelectorAll('*').forEach(el=>{el.style.transform='none';el.style.filter='none';el.style.animation='none';el.style.transition='none'});holder.appendChild(clone);document.body.appendChild(holder);await waitImages(clone);try{const canvas=await html2canvas(clone,{backgroundColor:'#ffffff',scale:1,useCORS:false,allowTaint:false,logging:false,scrollX:0,scrollY:0,windowWidth:900,width:clone.scrollWidth,height:clone.scrollHeight});const a=document.createElement('a');a.download='invoice-'+Date.now()+'.jpg';a.href=canvas.toDataURL('image/jpeg', .82);a.click();toast('تم تحميل صورة الفاتورة كما تظهر')}catch(err){console.error(err);toast('تعذر تحميل صورة الفاتورة، جرّب مرة أخرى')}finally{holder.remove();if(__btn){__btn.classList.remove('oskar-export-busy');__btn.disabled=false;}}}
   function guideHtml(){const sections=[['fa-house','الرئيسية',['متابعة مبيعات اليوم وربح اليوم بسرعة.','عرض الديون على الزبائن وما لهم.','البحث عن المنتجات السريعة وإضافتها للبيع من بطاقة المنتج.']],['fa-cart-shopping','الكاشير',['البحث باسم المنتج أو الباركود.','اختيار الكمية والوحدة المناسبة.','إضافة خصم ثابت أو نسبة.','إتمام البيع كاش أو دين أو عبر حساب دفع.']],['fa-file-circle-plus','فاتورة مباشرة',['إنشاء فاتورة لعناصر غير موجودة في المخزون.','إدخال اسم الصنف والكمية والسعر يدويًا.','مناسبة للخدمات أو المبيعات السريعة خارج المخزون.']],['fa-boxes-stacked','المخزون',['إضافة المنتجات وتعديلها.','اختيار نوع الوحدة: قطعة، كرتونة، كيلو، لتر.','تحديد أسعار الجملة والبيع.','متابعة الكميات والبحث والتصدير.']],['fa-file-invoice-dollar','الفواتير',['البحث برقم الفاتورة أو باركود الفاتورة أو اسم الزبون.','فلترة الفواتير حسب اليوم أو الأسبوع أو الشهر أو الكل.','فتح الفاتورة للطباعة أو التحميل صورة/PDF/Excel.']],['fa-address-book','الديون والعملاء',['عرض جميع العملاء وأرصدة الدين.','فتح صفحة العميل لمراجعة الفواتير والدفعات.','تسجيل دفعات وتسويات ودين يدوي.']],['fa-truck-ramp-box','المشتريات',['إدخال بضاعة جديدة من الموردين.','تحديد المنتج والكمية والوحدة.','تحديث المخزون وأسعار الشراء والبيع.']],['fa-hand-holding-dollar','دفعات التجار',['تسجيل الدفعات المدفوعة للموردين.','اختيار حساب الدفع المستخدم.','ظهور الدفعات في التقارير المالية.']],['fa-money-bill-wave','المصروفات',['تسجيل المصاريف اليومية والشهرية.','خصم المصاريف من صافي الربح.','البحث والتصدير عند الحاجة.']],['fa-chart-line','التقارير',['مراجعة المبيعات والأرباح والمصاريف.','معرفة صافي الربح حسب الفترة.','طباعة أو تصدير التقارير.']],['fa-credit-card','حسابات الدفع والتحويل',['إضافة حسابات مثل الكاش أو البنك أو المحفظة.','ربط الفواتير والدفعات بالحساب المناسب.','إدارة التحويلات بين الحسابات.']],['fa-gear','الإعدادات',['تعديل اسم المحل والشعار والعملة.','إدارة كلمة المرور والموظفين والصلاحيات.','في التجربة تظهر الأقسام مقفولة باستثناء حسابات الدفع والتحويل.']]];return '<div class="guide-pro-hero"><h1><i class="fa-solid fa-circle-question"></i> دليل المستخدم الكامل</h1><p>شرح تفصيلي للواجهة وطريقة استخدام الأقسام كما تظهر للمستخدم، بدون تفاصيل برمجية.</p></div><div class="guide-pro-grid">'+sections.map(s=>'<div class="guide-pro-card"><h3><i class="fa-solid '+s[0]+'"></i>'+s[1]+'</h3><ul>'+s[2].map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul></div>').join('')+'</div><div class="guide-pro-tip"><i class="fa-solid fa-lightbulb"></i> نصيحة: اضبط اسم المحل والشعار وحسابات الدفع أولًا، ثم أضف المنتجات، وبعدها استخدم الكاشير والفواتير والتقارير يوميًا.</div>'}
   function enhanceGuide(){const page=$('page-userGuide');if(page&&!page.dataset.safeGuide){page.dataset.safeGuide='1';page.innerHTML=guideHtml()}const body=$('modalBody'),title=$('modalTitle');if(body&&title&&/دليل المستخدم/.test(title.textContent||'')&&!body.dataset.safeGuide){body.dataset.safeGuide='1';body.innerHTML=guideHtml()}}
   function renameLabels(root){root=root||document.body;if(!root)return;const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode(n){return /فاتورة بدون مخز/.test(n.nodeValue)?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT}});let n;const nodes=[];while((n=walker.nextNode())&&nodes.length<200)nodes.push(n);nodes.forEach(x=>{x.nodeValue=x.nodeValue.replace(/فاتورة بدون مخز(?:و)?ن/g,'فاتورة مباشرة')})}
@@ -15056,7 +15057,7 @@
 
   async function waitAssets(root){
     try{ if(document.fonts && document.fonts.ready) await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 350))]); }catch{}
-    await Promise.all(Array.from(root.querySelectorAll("img")).map(img => waitOneImage(img, 650)));
+    await Promise.all(Array.from(root.querySelectorAll("img")).map(img => waitOneImage(img, 180)));
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   }
 
@@ -15116,13 +15117,13 @@
     try{
       normalizeInvoiceAssets(clone, target);
       await waitAssets(clone);
-      const scale = window.innerWidth <= 620 ? 1.35 : 1.5;
+      const scale = window.innerWidth <= 620 ? 0.95 : 1.05;
       return await window.html2canvas(clone, {
         scale,
         useCORS:true,
         allowTaint:false,
         backgroundColor:"#ffffff",
-        imageTimeout:900,
+        imageTimeout:180,
         logging:false,
         scrollX:0,
         scrollY:0,
@@ -15145,8 +15146,8 @@
     try{
       const canvas = await buildExactInvoiceCanvas();
       const a = document.createElement("a");
-      a.href = canvas.toDataURL("image/jpeg", .9);
-      a.download = "invoice-" + invoiceNumberFromDom() + ".png";
+      a.href = canvas.toDataURL("image/jpeg", .74);
+      a.download = "invoice-" + invoiceNumberFromDom() + ".jpg";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -15164,7 +15165,7 @@
     try{
       if(!window.jspdf || !window.jspdf.jsPDF) throw new Error("jspdf_not_ready");
       const canvas = await buildExactInvoiceCanvas();
-      const img = canvas.toDataURL("image/jpeg", .78);
+      const img = canvas.toDataURL("image/jpeg", .74);
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF("p", "mm", "a4", true);
       const pageW = pdf.internal.pageSize.getWidth();
@@ -15211,7 +15212,7 @@
       doc.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>طباعة الفاتورة</title><style>
         @page{size:auto;margin:8mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#0f172a;direction:rtl;font-family:Cairo,Arial,Tahoma,sans-serif;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.invoice-paper{width:100%!important;max-width:100%!important;margin:0!important;box-shadow:none!important;background:#fff!important}.invoice-header{background:#eff6ff!important}.invoice-logo{width:46px!important;height:46px!important;object-fit:cover!important;border-radius:14px!important}table{width:100%!important;min-width:0!important;border-collapse:collapse!important}th,td{border:1px solid #e5e7eb!important}.no-print{display:none!important}</style></head><body>${html}</body></html>`);
       doc.close();
-      await Promise.all(Array.from(doc.images || []).map(img => waitOneImage(img, 450)));
+      await Promise.all(Array.from(doc.images || []).map(img => waitOneImage(img, 130)));
       setTimeout(() => {
         try{ frame.contentWindow.focus(); frame.contentWindow.print(); }
         finally{ setTimeout(() => frame.remove(), 900); }
@@ -15644,7 +15645,7 @@
       const rect = clone.getBoundingClientRect();
       const w = Math.ceil(Math.max(clone.scrollWidth, rect.width, 302));
       const h = Math.ceil(Math.max(clone.scrollHeight, rect.height, 80)) + 10;
-      return await html2canvas(clone, {backgroundColor:"#ffffff", scale:1.25, useCORS:false, allowTaint:true, logging:false, scrollX:0, scrollY:0, windowWidth:w, windowHeight:h, width:w, height:h, imageTimeout:180, removeContainer:true});
+      return await html2canvas(clone, {backgroundColor:"#ffffff", scale:1, useCORS:false, allowTaint:true, logging:false, scrollX:0, scrollY:0, windowWidth:w, windowHeight:h, width:w, height:h, imageTimeout:180, removeContainer:true});
     }finally{
       wrap.remove();
     }
@@ -15656,7 +15657,7 @@
       const canvas = await receiptCanvas();
       const a = document.createElement("a");
       a.download = invoiceName() + ".jpg";
-      a.href = canvas.toDataURL("image/jpeg", .9);
+      a.href = canvas.toDataURL("image/jpeg", .74);
       document.body.appendChild(a); a.click(); a.remove();
       toast("تم تنزيل صورة الفاتورة");
     }catch(err){ console.error(err); toast("تعذر تنزيل الصورة الآن"); }
@@ -15667,7 +15668,7 @@
     try{
       if(!window.jspdf || !window.jspdf.jsPDF) throw new Error("jspdf_not_ready");
       const canvas = await receiptCanvas();
-      const img = canvas.toDataURL("image/jpeg", .78);
+      const img = canvas.toDataURL("image/jpeg", .74);
       const widthMm = 80;
       const heightMm = Math.max(90, canvas.height * widthMm / canvas.width);
       const { jsPDF } = window.jspdf;
@@ -15694,7 +15695,7 @@
         @page{size:80mm auto;margin:0}*{box-sizing:border-box!important}html,body{margin:0!important;padding:0!important;background:#fff!important;color:#000!important;direction:rtl!important}.oskar-thermal-receipt{width:80mm!important;max-width:80mm!important;min-width:80mm!important;margin:0!important;padding:5mm!important;background:#fff!important;color:#000!important;font-family:"Cairo","Tahoma","Arial",sans-serif!important;font-size:12px!important;line-height:1.42!important;box-shadow:none!important;border:0!important;border-radius:0!important}.oskar-thermal-receipt *{color:#000!important;box-shadow:none!important;text-shadow:none!important;filter:none!important;transform:none!important}.oskar-thermal-header{text-align:center;border-bottom:1px dashed #000;padding-bottom:10px;margin-bottom:10px}.oskar-thermal-header h1{margin:0;font-size:20px!important;font-weight:900!important;text-transform:uppercase}.oskar-thermal-info,.oskar-thermal-items,.oskar-thermal-totals{width:100%!important;border-collapse:collapse!important;margin:0 0 10px!important;min-width:0!important}.oskar-thermal-info td{vertical-align:top!important;padding:1px 0!important;border:0!important;background:#fff!important;font-size:12px!important}.oskar-thermal-left{text-align:left!important}.oskar-thermal-items th{border:0!important;border-bottom:1px solid #000!important;background:#fff!important;text-align:right!important;padding:5px 0!important;font-size:12px!important;font-weight:900!important}.oskar-thermal-items td{border:0!important;border-bottom:1px dotted #000!important;background:#fff!important;padding:5px 0!important;font-size:12px!important}.center{text-align:center!important}.left{text-align:left!important}.oskar-thermal-totals td{border:0!important;background:#fff!important;padding:2px 0!important;font-size:12px!important}.oskar-thermal-total-row td{font-weight:900!important;font-size:16px!important;border-top:1px double #000!important;border-bottom:1px double #000!important;padding:5px 0!important}.oskar-thermal-payment{margin-top:10px;font-size:12px!important}.oskar-thermal-footer{text-align:center;margin-top:20px;font-size:10px!important;border-top:1px dashed #000;padding-top:10px}.oskar-thermal-barcode{display:block;margin:8px auto 0!important;width:50mm!important;max-width:50mm!important;height:13mm!important;overflow:hidden!important}.oskar-thermal-barcode svg{width:50mm!important;height:11mm!important;display:block!important;margin:0 auto!important}.oskar-thermal-code{font-size:10px!important;text-align:center!important;direction:ltr!important;margin-top:2px!important}.oskar-thermal-preview-wrap{display:block!important;background:#fff!important;border:0!important;padding:0!important}.oskar-thermal-receipt{font-family:"Cairo","Tahoma","Arial",sans-serif!important;padding:4mm!important;line-height:1.55!important;overflow:visible!important}.oskar-thermal-receipt *{max-width:100%!important;overflow-wrap:anywhere!important;word-break:normal!important;letter-spacing:0!important}.oskar-thermal-info,.oskar-thermal-items,.oskar-thermal-totals{table-layout:fixed!important}.oskar-thermal-info td{width:50%!important;line-height:1.55!important;vertical-align:top!important}.oskar-thermal-items th,.oskar-thermal-items td{font-size:11px!important;line-height:1.45!important;vertical-align:top!important;overflow:visible!important;white-space:normal!important}.oskar-thermal-items th:nth-child(1),.oskar-thermal-items td:nth-child(1){width:28mm!important;text-align:right!important}.oskar-thermal-items th:nth-child(2),.oskar-thermal-items td:nth-child(2){width:9mm!important;text-align:center!important;direction:ltr!important;white-space:nowrap!important}.oskar-thermal-items th:nth-child(3),.oskar-thermal-items td:nth-child(3){width:15mm!important;text-align:center!important;direction:ltr!important;white-space:nowrap!important}.oskar-thermal-items th:nth-child(4),.oskar-thermal-items td:nth-child(4){width:17mm!important;text-align:left!important;direction:ltr!important;white-space:nowrap!important}.oskar-thermal-left{direction:ltr!important;text-align:left!important;unicode-bidi:plaintext!important}.oskar-thermal-totals td{width:50%!important;line-height:1.55!important}.oskar-thermal-total-row td{font-size:17px!important;line-height:1.45!important}.oskar-thermal-barcode{width:50mm!important;height:auto!important;min-height:12mm!important;overflow:visible!important}.oskar-thermal-barcode svg{width:50mm!important;height:11mm!important;overflow:visible!important}
       </style></head><body>${receipt.outerHTML}</body></html>`);
       doc.close();
-      setTimeout(() => { try{ frame.contentWindow.focus(); frame.contentWindow.print(); } finally{ setTimeout(()=>frame.remove(), 1200); } }, 380);
+      setTimeout(() => { try{ frame.contentWindow.focus(); frame.contentWindow.print(); } finally{ setTimeout(()=>frame.remove(), 650); } }, 80);
     }catch(err){ console.error(err); toast("تعذر فتح الطباعة الآن"); }
     finally{ setTimeout(()=>setBusy(btn, false), 350); }
   }
@@ -17436,6 +17437,67 @@
     setTimeout(installDebounce, 1600);
   }
   if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init, {once:true}); else init();
+})();
+</script>
+
+
+<!-- OSKAR_ULTRA_DOWNLOAD_RESPONSE_AND_WHITE_ICONS_2026_05_03 -->
+<style id="oskarUltraDownloadResponseAndWhiteIcons20260503">
+  .product-icon,
+  .product-card .product-icon,
+  #homeProductsGrid .product-icon{
+    background:linear-gradient(135deg,var(--primary,#059669),var(--primary2,#047857))!important;
+    color:#fff!important;
+    box-shadow:0 12px 24px rgba(5,150,105,.24)!important;
+  }
+  .product-icon i,
+  .product-card .product-icon i,
+  #homeProductsGrid .product-icon i{color:#fff!important;}
+  .oskar-download-pressed{
+    transform:translateY(-1px) scale(.985)!important;
+    filter:saturate(1.08)!important;
+  }
+  button[id*="Image"],button[id*="Pdf"],button[id*="PDF"],button[id*="Print"],button[id*="print"],button[id*="pdf"],button[id*="image"]{
+    touch-action:manipulation!important;
+  }
+</style>
+<script id="oskarUltraDownloadResponseAndWhiteIcons20260503Script">
+(function(){
+  "use strict";
+  if(window.__OSKAR_ULTRA_DOWNLOAD_RESPONSE_20260503__) return;
+  window.__OSKAR_ULTRA_DOWNLOAD_RESPONSE_20260503__ = true;
+  const $ = id => document.getElementById(id);
+
+  function prewarmExportLibs(){
+    try{
+      // يجبر المتصفح يجهز المكتبات الثقيلة والشعار قبل أول تحميل.
+      if(window.html2canvas) window.__oskarHtml2CanvasReady = true;
+      if(window.jspdf) window.__oskarJsPdfReady = true;
+      const logo = window.state?.settings?.localLogo || window.state?.settings?.logo || $("topShopLogo")?.src || $("sideShopLogo")?.src || "";
+      if(logo){ const img = new Image(); img.loading="eager"; img.decoding="async"; img.src = logo; }
+    }catch{}
+  }
+
+  function fastPress(btn){
+    if(!btn) return;
+    btn.classList.add("oskar-download-pressed");
+    clearTimeout(btn.__oskarPressTimer);
+    btn.__oskarPressTimer = setTimeout(()=>btn.classList.remove("oskar-download-pressed"), 550);
+  }
+
+  document.addEventListener("pointerdown", function(e){
+    const btn = e.target.closest && e.target.closest("#imageInvoiceBtn,#pdfInvoiceBtn,#printInvoiceBtn,#thermalImageInvoiceBtn,#thermalPdfInvoiceBtn,#thermalPrintInvoiceBtn,#imageInvoicesBtn,#pdfInvoicesBtn,#imageReportsBtn,#pdfReportsBtn,[data-image-customer],[data-pdf-customer]");
+    if(!btn) return;
+    fastPress(btn);
+    prewarmExportLibs();
+  }, {capture:true, passive:true});
+
+  document.addEventListener("mouseover", function(e){
+    if(e.target.closest && e.target.closest("#imageInvoiceBtn,#pdfInvoiceBtn,#thermalImageInvoiceBtn,#thermalPdfInvoiceBtn,#imageInvoicesBtn,#pdfInvoicesBtn")) prewarmExportLibs();
+  }, {capture:true, passive:true});
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", prewarmExportLibs, {once:true}); else prewarmExportLibs();
+  window.addEventListener("load", prewarmExportLibs, {once:true});
 })();
 </script>
 
