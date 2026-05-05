@@ -4370,7 +4370,8 @@
         return 0;
       }
       const queue = await idbGetAll("syncQueue");
-      const count = queue.length;
+      const operationKeys = new Set((queue || []).filter(q => q && q.store && q.itemId).map(q => `${q.store}::${q.itemId}`));
+      const count = operationKeys.size || (queue || []).length;
 
       $("syncCountBadge").textContent = count;
       $("syncCountBadge").style.display = count ? "flex" : "none";
@@ -6839,9 +6840,8 @@
     }
 
     function renderNotifications() {
-      const low = state.products.filter(p =>
-        cleanNumber(p.stock) <= cleanNumber(p.lowStock || state.settings?.lowStock || 5)
-      );
+      const backupLast = Number(localStorage.getItem("oskar_last_full_backup_at") || 0);
+      const backupDue = !backupLast || (Date.now() - backupLast) >= (12 * 60 * 60 * 1000);
 
       const laterUnpaid = state.invoices.filter(i =>
         i.paymentMethod === "later_app" && i.status !== "paid"
@@ -6851,14 +6851,14 @@
         (c.manualDebts || []).filter(d => d.status !== "paid")
       );
 
-      const count = low.length + laterUnpaid.length + manualUnpaid.length;
+      const count = laterUnpaid.length + manualUnpaid.length + (backupDue ? 1 : 0);
 
       $("notifBadge").textContent = count > 999 ? "999+" : count;
       $("notifBadge").title = count ? `${count} تنبيه` : "لا توجد تنبيهات";
       $("notifBadge").style.display = count ? "flex" : "none";
     }
 
-        function switchPage(page) {
+    function switchPage(page) {
       if (!hasPermission(page)) {
         toast("ليس لديك صلاحية للدخول إلى هذه الصفحة");
         return;
@@ -9236,6 +9236,8 @@
             
 
 
+
+
 </body>
         </html>
       `;
@@ -9304,7 +9306,7 @@
       const rect = element.getBoundingClientRect();
       const width = Math.max(320, Math.ceil(element.scrollWidth || rect.width || 900));
       const height = Math.max(120, Math.ceil(element.scrollHeight || rect.height || 700));
-      const scale = window.innerWidth <= 640 ? 0.85 : 0.95;
+      const scale = window.innerWidth <= 640 ? 0.62 : 0.72;
 
       try {
         return await html2canvas(element, {
@@ -9313,7 +9315,7 @@
           allowTaint: true,
           backgroundColor: "#ffffff",
           logging: false,
-          imageTimeout: 120,
+          imageTimeout: 60,
           removeContainer: true,
           foreignObjectRendering: false,
           scrollX: 0,
@@ -9363,13 +9365,14 @@
 
     async function downloadElementImage(element, filename) {
       const canvas = await oskarFastCanvas(element);
-      await oskarSaveCanvas(canvas, filename, "image/png", 0.9);
+      const fastName = String(filename || `image-${todayKey()}.jpg`).replace(/\.png$/i, ".jpg");
+      await oskarSaveCanvas(canvas, fastName, "image/jpeg", 0.82);
     }
 
     async function downloadElementPdf(element, filename) {
       const canvas = await oskarFastCanvas(element);
       if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("jspdf_not_ready");
-      const img = canvas.toDataURL("image/jpeg", 0.86);
+      const img = canvas.toDataURL("image/jpeg", 0.74);
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF("p", "mm", "a4", true);
 
@@ -10294,10 +10297,9 @@
     }
 
     function openNotifications() {
-      const allLow = state.products.filter(p =>
-        cleanNumber(p.stock) <= cleanNumber(p.lowStock || state.settings?.lowStock || 5)
-      ).sort((a,b) => cleanNumber(a.stock) - cleanNumber(b.stock));
-      const low = allLow.slice(0, 160);
+      const backupLast = Number(localStorage.getItem("oskar_last_full_backup_at") || 0);
+      const backupDue = !backupLast || (Date.now() - backupLast) >= (12 * 60 * 60 * 1000);
+      const backupText = backupLast ? `آخر نسخة احتياطية: ${formatDate(backupLast)}` : "لم يتم أخذ نسخة احتياطية بعد";
 
       const laterUnpaid = state.invoices.filter(i =>
         i.paymentMethod === "later_app" && i.status !== "paid"
@@ -10312,18 +10314,15 @@
       );
 
       openModal("التنبيهات", `
-        <div class="card" style="box-shadow:none;margin-bottom:12px">
-          <h3 style="margin:0 0 10px;font-weight:900">البضاعة الناقصة ${allLow.length > low.length ? `<span class="badge yellow">عرض ${low.length} من ${allLow.length}</span>` : ""}</h3>
-          ${
-            low.map(p => `<div class="debt-card" data-edit-product="${p.id}">
-              <div>
-                <div class="debt-name">${escapeHtml(p.name)}</div>
-                <div class="debt-sub">${cleanNumber(p.stock)} ${escapeHtml(unitLabel(p.baseUnit, p.customUnit))}</div>
-              </div>
-              <span class="badge red">ناقص</span>
-            </div>`).join("") ||
-            `<div class="muted">لا توجد بضاعة ناقصة</div>`
-          }
+        <div class="card" style="box-shadow:none;margin-bottom:12px;border-color:${backupDue ? '#f59e0b' : '#bbf7d0'}">
+          <h3 style="margin:0 0 10px;font-weight:900"><i class="fa-solid fa-download"></i> النسخة الاحتياطية</h3>
+          <div class="debt-card view-only">
+            <div>
+              <div class="debt-name">${backupDue ? 'خذ نسخة احتياطية الآن' : 'النسخ الاحتياطي محدث'}</div>
+              <div class="debt-sub">${escapeHtml(backupText)} · يفضل أخذ نسخة كل 12 ساعة</div>
+            </div>
+            <span class="badge ${backupDue ? 'yellow' : 'green'}">${backupDue ? 'مطلوب' : 'تمام'}</span>
+          </div>
         </div>
 
         <div class="card" style="box-shadow:none;margin-bottom:12px">
@@ -11264,6 +11263,32 @@
       }
     }
 
+    function ensureBootEventTargets() {
+      const containerId = "oskarHiddenSafeEventTargets";
+      let box = document.getElementById(containerId);
+      if (!box) {
+        box = document.createElement("div");
+        box.id = containerId;
+        box.style.cssText = "display:none!important;width:0;height:0;overflow:hidden;position:absolute;opacity:0;pointer-events:none";
+        document.body.appendChild(box);
+      }
+      const make = (id, tag = "button", type = "button") => {
+        if (document.getElementById(id)) return;
+        const el = document.createElement(tag);
+        el.id = id;
+        if (tag === "button") el.type = type;
+        if (tag === "input" && type) el.type = type;
+        box.appendChild(el);
+      };
+      ["modalCloseBtn","openMenuBtn","quickAddBtn","syncNowBtn","closeSyncPopoverBtn","notificationsBtn","addProductBtn","addPurchaseBtn","addSupplierPaymentBtn","addExpenseBtn","addDebtCustomerBtn","addPaymentAccountBtn","addFreeLineBtn","completeSaleBtn","completeFreeInvoiceBtn","clearCartBtn","goFreeInvoiceBtn","openScannerBtn","manualBarcodeBtn","saveSettingsBtn","saveAdminPasswordBtn","exportBackupBtn","clearLocalBtn","printInvoicesBtn","imageInvoicesBtn","pdfInvoicesBtn","excelInvoicesBtn","printReportsBtn","imageReportsBtn","pdfReportsBtn","excelReportsBtn","excelInventoryBtn","excelDebtsBtn","excelPurchasesBtn","excelSupplierPaymentsBtn","excelExpensesBtn","excelLowStockBtn","topLogoutBtn","logoutBtn"].forEach(id => make(id, "button"));
+      ["cashierSearch","homeProductSearch","inventorySearch","invoiceSearch","invoiceCustomDate","debtsSearch","purchaseTableSearch","supplierPaymentsSearch","expensesSearch","reportsCustomDate","discountValue"].forEach(id => make(id, "input", id.toLowerCase().includes("date") ? "date" : "text"));
+      ["invoicePeriod","invoiceStatusFilter","debtsSort","reportsPeriod","discountType"].forEach(id => make(id, "select"));
+      make("importBackupInput", "input", "file");
+      if (!document.getElementById("modalBackdrop")) { const el = document.createElement("div"); el.id = "modalBackdrop"; box.appendChild(el); }
+      if (!document.getElementById("sidebar")) { const el = document.createElement("aside"); el.id = "sidebar"; box.appendChild(el); }
+      if (!document.getElementById("floatingScanner")) { const el = document.createElement("div"); el.id = "floatingScanner"; box.appendChild(el); }
+    }
+
     async function boot() {
       await openDB();
 
@@ -11271,8 +11296,15 @@
       ensureAuthTopButtons();
       ensureSettingsAuthBoxes();
       ensureExcelButtons();
+      ensureBootEventTargets();
 
-      bindEvents();
+      try {
+        bindEvents();
+      } catch (bindErr) {
+        console.warn("safe bindEvents recovery", bindErr);
+        ensureBootEventTargets();
+        bindEvents();
+      }
 
       updateSyncUi({
         spin: true,
@@ -12325,7 +12357,7 @@
     let page=$("patchCameraPage"); if (page) return page;
     page=document.createElement("div"); page.id="patchCameraPage"; page.className="patch-camera-page";
     page.innerHTML=`<div id="patchHtml5Reader"></div><div class="patch-scan-frame"></div><div class="patch-laser"></div><button id="patchCameraCloseBtn" class="patch-camera-close" type="button">×</button><div id="patchCameraTitle" class="patch-camera-title">قراءة باركود المنتج</div><div id="patchScanHint" class="patch-scan-hint">وجّه الكاميرا نحو الباركود</div>`;
-    document.body.appendChild(page); $("patchCameraCloseBtn").onclick=stopPatchScanner; return page;
+    document.body.appendChild(page); const closeBtn = page.querySelector("#patchCameraCloseBtn"); if (closeBtn) closeBtn.onclick = stopPatchScanner; return page;
   }
   function markDetected(){ const p=$("patchCameraPage"); if(!p)return; p.classList.add("detected"); clearTimeout(p.__timer); p.__timer=setTimeout(()=>p.classList.remove("detected"),550); }
   async function stopPatchScanner(){
@@ -13100,7 +13132,7 @@
     let page=$("oskarFastScanner"); if(page) return page;
     page=document.createElement("div"); page.id="oskarFastScanner"; page.className="oskar-fast-scanner";
     page.innerHTML=`<div id="oskarFastReader" class="oskar-fast-reader"></div><div class="oskar-fast-frame"></div><div class="oskar-fast-laser"></div><button id="oskarFastClose" class="oskar-fast-close" type="button">×</button><div id="oskarFastTitle" class="oskar-fast-title">قراءة باركود للبيع</div><div id="oskarFastAdded" class="oskar-fast-added"></div>`;
-    document.body.appendChild(page); $("oskarFastClose").onclick=()=>stopScanner(); return page;
+    document.body.appendChild(page); const closeBtn = page.querySelector("#oskarFastClose"); if (closeBtn) closeBtn.onclick = () => stopScanner(); return page;
   }
   async function stopScanner(){
     try{ if(scanner && running) await scanner.stop(); }catch{}
@@ -13173,7 +13205,7 @@
       const F = window.Html5QrcodeSupportedFormats;
       const formats = F ? [F.QR_CODE,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128,F.CODE_39,F.CODE_93,F.ITF,F.CODABAR,F.DATA_MATRIX,F.AZTEC,F.PDF_417] : undefined;
       scanner=new Html5Qrcode("oskarFastReader", formats?{formatsToSupport:formats,verbose:false}:undefined);
-      const fastConfig={fps:18,qrbox:(w,h)=>({width:Math.floor(Math.min(w*.88,560)),height:Math.floor(Math.min(h*.34,260))}),disableFlip:false,rememberLastUsedCamera:true,experimentalFeatures:{useBarCodeDetectorIfSupported:true},videoConstraints:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}}};
+      const fastConfig={fps:30,qrbox:(w,h)=>({width:Math.floor(w*.82),height:Math.floor(h*.34)}),aspectRatio:1.7777778,disableFlip:false,rememberLastUsedCamera:true,experimentalFeatures:{useBarCodeDetectorIfSupported:true},videoConstraints:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:"continuous"},{exposureMode:"continuous"},{whiteBalanceMode:"continuous"}]}};
       const onScan=(txt)=>{ const c=String(txt||"").trim(); const t=Date.now(); if(!c) return; if(c===lastCode && t-lastAt<900) return; lastCode=c; lastAt=t; handleCode(c); };
       const start = scanner.start({facingMode:{ideal:"environment"}}, fastConfig, onScan, ()=>{});
       await Promise.race([start, new Promise((_,rej)=>setTimeout(()=>rej(new Error("camera-start-timeout")),8500))]);
@@ -16747,35 +16779,97 @@
     a.href = URL.createObjectURL(blob);
     a.download = "oskar-full-site-backup-" + new Date().toISOString().slice(0,10) + ".json";
     document.body.appendChild(a); a.click(); a.remove();
+    try{ localStorage.setItem("oskar_last_full_backup_at", String(Date.now())); }catch{}
+    try{ if(typeof window.renderAll === "function") setTimeout(() => window.renderAll(), 80); }catch{}
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   async function importBackupFile(file){
     if(!file) return;
+    const stores = ["products","invoices","customers","expenses","purchases","supplierPayments","paymentAccounts","employees","settings"];
+    const keyOf = (item) => String(item?.id || item?.code || item?.barcode || item?.name || "").trim();
+    const timeOf = (item) => Number(item?.updatedAt || item?.createdAt || 0);
+    const mergeRow = (oldRow, newRow, store) => {
+      const older = oldRow || {};
+      const incoming = newRow || {};
+      const useIncoming = !oldRow || timeOf(incoming) >= timeOf(older);
+      let merged = useIncoming ? {...older, ...incoming} : {...incoming, ...older};
+      if(store === "settings"){
+        merged = {
+          ...merged,
+          id: merged.id || "main",
+          localLogo: older.localLogo || incoming.localLogo || "",
+          logoMode: (older.localLogo || incoming.localLogo) ? "local" : (merged.logo ? "url" : "default")
+        };
+      }
+      if(!merged.id) merged.id = keyOf(merged) || (store + "_" + Date.now() + "_" + Math.random().toString(16).slice(2));
+      return merged;
+    };
+    const normalizeStoreRow = (store, row) => {
+      if(!row) return row;
+      try{
+        if(store === "products" && typeof window.normalizeProduct === "function") return window.normalizeProduct(row);
+        if(store === "paymentAccounts") return normalizeAcc(row);
+        if(store === "employees" && typeof window.normalizeEmployee === "function") return window.normalizeEmployee(row);
+        if(store === "customers" && typeof window.normalizeCustomer === "function") return window.normalizeCustomer(row);
+      }catch{}
+      return row;
+    };
+    const mergeArrays = (oldArr=[], newArr=[], store="") => {
+      const map = new Map();
+      (Array.isArray(oldArr) ? oldArr : []).forEach(item => { const k = keyOf(item); if(k) map.set(k, item); });
+      let changed = [];
+      (Array.isArray(newArr) ? newArr : []).forEach(item => {
+        if(!item) return;
+        if(store === "settings" && !item.id) item = {...item, id:"main"};
+        const k = keyOf(item) || (store + "_" + Date.now() + "_" + Math.random().toString(16).slice(2));
+        const old = map.get(k);
+        const merged = normalizeStoreRow(store, mergeRow(old, item, store));
+        map.set(k, merged);
+        if(!old || JSON.stringify(old) !== JSON.stringify(merged)) changed.push(merged);
+      });
+      return {rows:Array.from(map.values()), changed};
+    };
     try{
       const data = JSON.parse(await file.text());
-      const stores = ["products","invoices","customers","expenses","purchases","supplierPayments","paymentAccounts","employees","settings","syncQueue"];
+      let totalAddedOrChanged = 0;
       for(const store of stores){
-        if(Array.isArray(data[store])){
-          st()[store] = store === "paymentAccounts" ? data[store].map(normalizeAcc) : data[store];
-          if(typeof window.idbClear === "function") { try{ await window.idbClear(store); }catch{} }
-          if(typeof window.idbPut === "function"){
-            for(const item of data[store]){
-              const row = store === "settings" ? {...item, id:item.id || "main"} : item;
-              if(row && row.id) await window.idbPut(store, row);
-            }
+        let incoming = [];
+        if(Array.isArray(data[store])) incoming = data[store];
+        else if(store === "settings" && data.settingsMain) incoming = [data.settingsMain];
+        else if(store === "settings" && data.settings && !Array.isArray(data.settings)) incoming = [{...data.settings, id:data.settings.id || "main"}];
+        if(!incoming.length) continue;
+        let current = [];
+        try{ current = typeof window.idbGetAll === "function" ? await window.idbGetAll(store) : (Array.isArray(st()[store]) ? st()[store] : []); }catch{ current = Array.isArray(st()[store]) ? st()[store] : []; }
+        const {rows, changed} = mergeArrays(current, incoming, store);
+        totalAddedOrChanged += changed.length;
+        st()[store] = store === "settings" ? (rows[0] || st().settings || {}) : rows;
+        if(store === "settings") st().settings = rows[0] || st().settings || {};
+        if(typeof window.idbPut === "function"){
+          for(const row of rows){ if(row && row.id) await window.idbPut(store, row); }
+        }
+        if(typeof window.enqueueSync === "function"){
+          for(const row of changed){
+            if(!row || !row.id) continue;
+            const safeRow = store === "settings" ? {...row, localLogo:"", logoMode:row.logo ? "url" : "default"} : row;
+            await window.enqueueSync({type:"set", store, itemId:row.id, data:safeRow, syncMeta:{source:"backup_merge"}});
           }
         }
       }
-      st().suppliers = Array.isArray(data.suppliers) ? data.suppliers : (st().suppliers || []);
-      st().workers = Array.isArray(data.workers) ? data.workers : (st().workers || []);
-      st().workerWages = Array.isArray(data.workerWages) ? data.workerWages : (st().workerWages || []);
-      st().accountMovements = Array.isArray(data.accountMovements) ? data.accountMovements : (st().accountMovements || []);
+      const extraKeys = ["suppliers","workers","workerWages","accountMovements"];
+      for(const k of extraKeys){
+        if(!Array.isArray(data[k])) continue;
+        const old = Array.isArray(st()[k]) ? st()[k] : [];
+        const {rows, changed} = mergeArrays(old, data[k], k);
+        st()[k] = rows;
+        totalAddedOrChanged += changed.length;
+      }
       saveExtra(); saveMovements(); writeAccountsCache(getAccounts());
       try{ await window.loadLocalData?.(true); }catch{}
       await refreshAccounts();
       try{ window.renderAll?.(); }catch{}
       renderEverything();
-      toast("تم استيراد النسخة الاحتياطية الشاملة");
+      if(navigator.onLine && typeof window.syncNow === "function") setTimeout(() => window.syncNow(false).catch(()=>{}), 250);
+      toast("تم دمج النسخة فوق البيانات الموجودة بدون حذف القديم" + (totalAddedOrChanged ? " · تغييرات: " + totalAddedOrChanged : ""));
     }catch(err){ console.error(err); toast("فشل استيراد النسخة الاحتياطية"); }
     if($("importBackupInput")) $("importBackupInput").value = "";
   }
@@ -17666,6 +17760,965 @@
   document.addEventListener("visibilitychange",()=>{ if(document.hidden){ try{ window.stopScanner?.(); window.stopFloatingScanner?.(); }catch{} } });
   setInterval(maintain, 1500);
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",()=>setTimeout(maintain,500),{once:true}); else setTimeout(maintain,500);
+})();
+</script>
+
+
+
+<!-- OSKAR_SUPER_FAST_BARCODE_CAMERA_2026_05_05 -->
+<style id="oskarSuperFastBarcodeStyle20260505">
+  .oskar-super-camera-page{
+    position:fixed!important;
+    inset:0!important;
+    background:#000!important;
+    z-index:2147483647!important;
+    display:none!important;
+    overflow:hidden!important;
+    direction:rtl!important;
+    font-family:Cairo,Arial,sans-serif!important;
+  }
+  .oskar-super-camera-page.show{display:block!important;}
+  #oskarSuperReader{
+    width:100vw!important;
+    height:100vh!important;
+    background:#000!important;
+  }
+  #oskarSuperReader video{
+    width:100vw!important;
+    height:100vh!important;
+    object-fit:cover!important;
+    display:block!important;
+  }
+  #oskarSuperReader__scan_region,
+  #oskarSuperReader__dashboard,
+  #oskarSuperReader__dashboard_section,
+  #oskarSuperReader__header_message,
+  #oskarSuperReader img,
+  #oskarSuperReader button,
+  #oskarSuperReader select{
+    display:none!important;
+    visibility:hidden!important;
+  }
+  .oskar-super-scan-frame{
+    pointer-events:none!important;
+    position:fixed!important;
+    top:50%!important;
+    left:50%!important;
+    width:min(82vw,420px)!important;
+    height:230px!important;
+    transform:translate(-50%,-50%)!important;
+    border:3px solid rgba(255,255,255,.55)!important;
+    border-radius:26px!important;
+    z-index:10!important;
+    transition:.15s ease!important;
+    box-shadow:0 0 0 9999px rgba(0,0,0,.18),0 0 30px rgba(255,255,255,.15)!important;
+  }
+  .oskar-super-scan-frame::before,
+  .oskar-super-scan-frame::after{
+    content:""!important;
+    position:absolute!important;
+    width:54px!important;
+    height:54px!important;
+    border-color:#22c55e!important;
+    border-style:solid!important;
+    filter:drop-shadow(0 0 12px rgba(34,197,94,.95))!important;
+  }
+  .oskar-super-scan-frame::before{
+    top:-4px!important;
+    right:-4px!important;
+    border-width:6px 6px 0 0!important;
+    border-radius:0 22px 0 0!important;
+  }
+  .oskar-super-scan-frame::after{
+    left:-4px!important;
+    bottom:-4px!important;
+    border-width:0 0 6px 6px!important;
+    border-radius:0 0 0 22px!important;
+  }
+  .oskar-super-laser{
+    position:fixed!important;
+    top:50%!important;
+    left:50%!important;
+    width:min(72vw,360px)!important;
+    height:3px!important;
+    transform:translate(-50%,-50%)!important;
+    z-index:11!important;
+    border-radius:999px!important;
+    background:linear-gradient(90deg,transparent,#22c55e,transparent)!important;
+    box-shadow:0 0 22px #22c55e!important;
+    animation:oskarSuperLaserMove 1.2s ease-in-out infinite!important;
+    pointer-events:none!important;
+  }
+  @keyframes oskarSuperLaserMove{
+    0%,100%{transform:translate(-50%,calc(-50% - 95px));opacity:.55}
+    50%{transform:translate(-50%,calc(-50% + 95px));opacity:1}
+  }
+  .oskar-super-camera-page.detected .oskar-super-scan-frame{
+    border-color:#22c55e!important;
+    box-shadow:0 0 0 9999px rgba(0,0,0,.13),0 0 40px rgba(34,197,94,.9),inset 0 0 35px rgba(34,197,94,.25)!important;
+    animation:oskarSuperGreenPop .28s ease!important;
+  }
+  @keyframes oskarSuperGreenPop{
+    0%{transform:translate(-50%,-50%) scale(.96)}
+    60%{transform:translate(-50%,-50%) scale(1.03)}
+    100%{transform:translate(-50%,-50%) scale(1)}
+  }
+  .oskar-super-close{
+    position:fixed!important;
+    top:15px!important;
+    left:15px!important;
+    z-index:50!important;
+    width:50px!important;
+    height:50px!important;
+    border:0!important;
+    border-radius:18px!important;
+    background:rgba(15,23,42,.92)!important;
+    color:#fff!important;
+    font-size:27px!important;
+    font-weight:900!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    box-shadow:0 15px 35px rgba(0,0,0,.35)!important;
+  }
+  .oskar-super-title{
+    position:fixed!important;
+    top:16px!important;
+    right:16px!important;
+    left:78px!important;
+    z-index:50!important;
+    padding:11px 14px!important;
+    border-radius:18px!important;
+    background:rgba(15,23,42,.92)!important;
+    color:#fff!important;
+    font-size:14px!important;
+    font-weight:900!important;
+    line-height:1.6!important;
+    border:1px solid rgba(255,255,255,.12)!important;
+    box-shadow:0 15px 35px rgba(0,0,0,.28)!important;
+  }
+  .oskar-super-title small{display:block!important;color:#bbf7d0!important;font-size:11px!important;font-weight:800!important;}
+  .oskar-super-toast{
+    position:fixed!important;
+    right:16px!important;
+    left:16px!important;
+    bottom:28px!important;
+    z-index:60!important;
+    padding:15px 18px!important;
+    border-radius:18px!important;
+    background:rgba(15,23,42,.96)!important;
+    color:#fff!important;
+    font-size:16px!important;
+    font-weight:900!important;
+    text-align:center!important;
+    box-shadow:0 18px 45px rgba(0,0,0,.4)!important;
+    border:1px solid rgba(255,255,255,.15)!important;
+    transform:translateY(130%)!important;
+    opacity:0!important;
+    transition:.25s ease!important;
+    direction:rtl!important;
+  }
+  .oskar-super-toast.show{transform:translateY(0)!important;opacity:1!important;}
+  .oskar-super-added{
+    position:fixed!important;
+    right:12px!important;
+    left:12px!important;
+    bottom:88px!important;
+    z-index:55!important;
+    display:flex!important;
+    gap:8px!important;
+    overflow-x:auto!important;
+    padding:4px!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+  .oskar-super-chip{
+    flex:0 0 auto!important;
+    background:rgba(255,255,255,.96)!important;
+    color:#064e3b!important;
+    border:1px solid #bbf7d0!important;
+    border-radius:999px!important;
+    padding:9px 12px!important;
+    font-weight:900!important;
+    font-size:12px!important;
+    box-shadow:0 12px 28px rgba(0,0,0,.22)!important;
+    white-space:nowrap!important;
+    display:inline-flex!important;
+    align-items:center!important;
+    gap:8px!important;
+  }
+  .oskar-super-chip button{
+    border:0!important;
+    background:#dcfce7!important;
+    color:#047857!important;
+    border-radius:999px!important;
+    min-width:30px!important;
+    height:24px!important;
+    padding:0 9px!important;
+    font-size:13px!important;
+    font-weight:900!important;
+  }
+</style>
+<script id="oskarSuperFastBarcodeScript20260505">
+(function(){
+  "use strict";
+  if(window.__OSKAR_SUPER_FAST_BARCODE_20260505__) return;
+  window.__OSKAR_SUPER_FAST_BARCODE_20260505__ = true;
+
+  const $ = id => document.getElementById(id);
+  const HTML5_QRCODE_SRC = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
+  const KEEP_CAMERA_KEY = "oskar_keep_cashier_barcode_camera_open_v1";
+  const oldStopScanner = typeof window.stopScanner === "function" ? window.stopScanner.bind(window) : null;
+  const oldStopFloatingScanner = typeof window.stopFloatingScanner === "function" ? window.stopFloatingScanner.bind(window) : null;
+
+  let scanner = null;
+  let isRunning = false;
+  let startPromise = null;
+  let currentMode = "sale";
+  let currentTargetInput = "";
+  let lastCode = "";
+  let lastTime = 0;
+  let productIndexVersion = "";
+  let productBarcodeMap = new Map();
+  let soundUnlocked = false;
+
+  const scanSound = new Audio("./qr.mp3");
+  scanSound.preload = "auto";
+  scanSound.volume = 1;
+
+  function toast(msg, ms){
+    if(typeof window.toast === "function") return window.toast(msg, ms || 1800);
+    const el = $("toast");
+    if(el){ el.textContent = msg; el.classList.add("show"); clearTimeout(el.__t); el.__t = setTimeout(()=>el.classList.remove("show"), ms || 1800); }
+  }
+  function unlockSound(){
+    if(soundUnlocked) return;
+    soundUnlocked = true;
+    scanSound.play().then(()=>{ scanSound.pause(); scanSound.currentTime = 0; }).catch(()=>{});
+  }
+  document.addEventListener("pointerdown", unlockSound, {once:true, passive:true});
+  document.addEventListener("touchstart", unlockSound, {once:true, passive:true});
+  document.addEventListener("keydown", unlockSound, {once:true, passive:true});
+
+  function playBeep(){
+    try{ scanSound.pause(); scanSound.currentTime = 0; scanSound.play().catch(()=>{}); }catch(e){}
+  }
+  function vibratePhone(){
+    try{ if(navigator.vibrate) navigator.vibrate([55,25,55]); }catch(e){}
+  }
+  function scannerToast(text){
+    const t = $("oskarSuperToast");
+    if(!t) return;
+    t.textContent = text;
+    t.classList.add("show");
+    clearTimeout(t.__timer);
+    t.__timer = setTimeout(()=>t.classList.remove("show"), 1500);
+  }
+  function markDetected(){
+    const page = $("oskarSuperCameraPage");
+    if(!page) return;
+    page.classList.add("detected");
+    clearTimeout(page.__detectedTimer);
+    page.__detectedTimer = setTimeout(()=>page.classList.remove("detected"), 550);
+  }
+  function safeText(v){
+    return String(v ?? "").replace(/[&<>\"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+  }
+  function num(v, fallback){
+    const n = Number(String(v ?? "").replace(",", "."));
+    return Number.isFinite(n) ? n : (fallback || 0);
+  }
+  function keepCameraOpen(){
+    try{ return localStorage.getItem(KEEP_CAMERA_KEY) === "1"; }catch(e){ return false; }
+  }
+
+  function ensureDom(){
+    let page = $("oskarSuperCameraPage");
+    if(page) return page;
+    page = document.createElement("div");
+    page.id = "oskarSuperCameraPage";
+    page.className = "oskar-super-camera-page";
+    page.innerHTML = `
+      <div id="oskarSuperReader"></div>
+      <div class="oskar-super-scan-frame"></div>
+      <div class="oskar-super-laser"></div>
+      <button id="oskarSuperClose" class="oskar-super-close" type="button" aria-label="إغلاق">×</button>
+      <div id="oskarSuperTitle" class="oskar-super-title">كاميرا الباركود<small>قراءة سريعة من كل الجهات بدون تحميل المخزون</small></div>
+      <div id="oskarSuperAdded" class="oskar-super-added"></div>
+      <div id="oskarSuperToast" class="oskar-super-toast"></div>`;
+    document.body.appendChild(page);
+    $("oskarSuperClose").addEventListener("click", function(e){ e.preventDefault(); e.stopPropagation(); stopSuperScanner(); }, true);
+    return page;
+  }
+
+  function hideOldScannerLayers(){
+    ["floatingScanner", "patchCameraPage", "oskarFastScanner", "oskarTurboScanner"].forEach(id => {
+      const el = $(id);
+      if(el) el.classList.remove("show", "detected");
+    });
+  }
+
+  function ensureHtml5Qrcode(){
+    if(window.Html5Qrcode && window.Html5QrcodeSupportedFormats) return Promise.resolve(true);
+    if(window.__oskarSuperQrLoadPromise) return window.__oskarSuperQrLoadPromise;
+    window.__oskarSuperQrLoadPromise = new Promise((resolve, reject) => {
+      const done = () => window.Html5Qrcode ? resolve(true) : reject(new Error("html5-qrcode-not-loaded"));
+      const existing = Array.from(document.scripts).find(s => String(s.src || "").includes("html5-qrcode"));
+      if(existing && !window.Html5Qrcode){
+        existing.addEventListener("load", done, {once:true});
+        existing.addEventListener("error", () => reject(new Error("html5-qrcode-load-error")), {once:true});
+        setTimeout(() => {
+          if(window.Html5Qrcode) resolve(true);
+          else {
+            const sc = document.createElement("script");
+            sc.src = HTML5_QRCODE_SRC;
+            sc.async = true;
+            sc.onload = done;
+            sc.onerror = () => reject(new Error("html5-qrcode-load-error"));
+            document.head.appendChild(sc);
+          }
+        }, 2200);
+        return;
+      }
+      const sc = document.createElement("script");
+      sc.src = HTML5_QRCODE_SRC;
+      sc.async = true;
+      sc.onload = done;
+      sc.onerror = () => reject(new Error("html5-qrcode-load-error"));
+      document.head.appendChild(sc);
+    });
+    return window.__oskarSuperQrLoadPromise;
+  }
+
+  function prewarmScannerLib(){
+    setTimeout(()=>ensureHtml5Qrcode().catch(()=>{}), 120);
+  }
+
+  function productsVersion(){
+    const arr = window.state && Array.isArray(window.state.products) ? window.state.products : [];
+    const len = arr.length;
+    const a = arr[0];
+    const b = arr[len - 1];
+    return len + "|" + (a && (a.id || a.code || a.barcode || a.updatedAt) || "") + "|" + (b && (b.id || b.code || b.barcode || b.updatedAt) || "") + "|" + (window.state && window.state.__productsUpdatedAt || "");
+  }
+  function rebuildProductIndexIfNeeded(){
+    const v = productsVersion();
+    if(v === productIndexVersion && productBarcodeMap.size) return;
+    productIndexVersion = v;
+    productBarcodeMap = new Map();
+    const arr = window.state && Array.isArray(window.state.products) ? window.state.products : [];
+    for(const p of arr){
+      const b = String(p && p.barcode || "").trim();
+      const c = String(p && p.code || "").trim();
+      if(b && !productBarcodeMap.has(b)) productBarcodeMap.set(b, p);
+      if(c && !productBarcodeMap.has(c)) productBarcodeMap.set(c, p);
+    }
+  }
+  function getProductByCode(code){
+    const c = String(code || "").trim();
+    if(!c) return null;
+    rebuildProductIndexIfNeeded();
+    if(productBarcodeMap.has(c)) return productBarcodeMap.get(c);
+    try{
+      if(typeof window.getProductByBarcode === "function"){
+        const p = window.getProductByBarcode(c);
+        if(p) return p;
+      }
+    }catch(e){}
+    return null;
+  }
+  function getCart(){
+    if(window.state && Array.isArray(window.state.cart)) return window.state.cart;
+    return [];
+  }
+  function renderCartSoon(){
+    requestAnimationFrame(() => {
+      try{ if(typeof window.renderCart === "function") window.renderCart(); }
+      catch(e){ console.warn(e); }
+    });
+  }
+  function cartLineFor(product){
+    return getCart().find(x => String(x.productId || "") === String(product.id || ""));
+  }
+  function addProductToCart(product){
+    if(!product) return false;
+    const line = cartLineFor(product);
+    if(line){
+      const nextQty = num(line.qty, 1) + 1;
+      line.qty = nextQty;
+      try{
+        if(typeof window.updateCartLine === "function") window.updateCartLine(line.id, {qty: nextQty}, true);
+      }catch(e){}
+      renderCartSoon();
+      return true;
+    }
+    try{
+      if(typeof window.addToCart === "function"){
+        window.addToCart(product);
+        renderCartSoon();
+        return true;
+      }
+    }catch(e){ console.warn(e); }
+    const cart = getCart();
+    if(cart){
+      cart.push({
+        id:"cart_" + Date.now() + "_" + Math.random().toString(16).slice(2),
+        productId:product.id,
+        name:product.name,
+        qty:1,
+        unit:product.unit || product.baseUnit || "قطعة",
+        price:num(product.salePrice || product.price),
+        cost:num(product.costPrice || product.wholesalePrice),
+        total:num(product.salePrice || product.price),
+        costTotal:num(product.costPrice || product.wholesalePrice)
+      });
+      renderCartSoon();
+      return true;
+    }
+    return false;
+  }
+  function addChip(product){
+    const box = $("oskarSuperAdded");
+    if(!box || !product) return;
+    const key = String(product.id || product.barcode || product.code || product.name || Date.now());
+    let old = box.querySelector('[data-super-chip="' + CSS.escape(key) + '"]');
+    if(old){ old.querySelector("b").textContent = String(num(old.dataset.count, 1) + 1); old.dataset.count = String(num(old.dataset.count, 1) + 1); return; }
+    const chip = document.createElement("span");
+    chip.className = "oskar-super-chip";
+    chip.dataset.superChip = key;
+    chip.dataset.count = "1";
+    chip.innerHTML = '<i class="fa-solid fa-check"></i> ' + safeText(product.name || "منتج") + ' × <b>1</b><button type="button">+1</button>';
+    chip.querySelector("button").onclick = () => { addProductToCart(product); chip.dataset.count = String(num(chip.dataset.count,1)+1); chip.querySelector("b").textContent = chip.dataset.count; toast("تمت زيادة الكمية"); };
+    box.prepend(chip);
+  }
+
+  async function stopSuperScanner(){
+    try{ if(scanner && isRunning) await scanner.stop(); }catch(e){}
+    try{ if(scanner) await scanner.clear(); }catch(e){}
+    scanner = null;
+    isRunning = false;
+    startPromise = null;
+    const page = $("oskarSuperCameraPage");
+    if(page) page.classList.remove("show", "detected");
+  }
+
+  function handleDecodedCode(decodedText, decodedResult){
+    const code = String(decodedText || "").trim();
+    const now = Date.now();
+    if(!code) return;
+    if(code === lastCode && now - lastTime < 1400) return;
+    lastCode = code;
+    lastTime = now;
+
+    markDetected();
+    playBeep();
+    vibratePhone();
+    window.dispatchEvent(new CustomEvent("barcode:scanned", {detail:{code:code, result:decodedResult || null, mode:currentMode, targetInputId:currentTargetInput}}));
+
+    if(currentMode === "product" || currentTargetInput){
+      const input = $(currentTargetInput || "productBarcode");
+      if(input){
+        input.value = code;
+        input.dispatchEvent(new Event("input", {bubbles:true}));
+        input.dispatchEvent(new Event("change", {bubbles:true}));
+      }
+      scannerToast(code);
+      toast("تمت قراءة الباركود ووضعه في خانة المنتج");
+      stopSuperScanner();
+      return;
+    }
+
+    const product = getProductByCode(code);
+    if(!product){
+      scannerToast("لم يتم العثور على: " + code);
+      toast("لم يتم العثور على منتج بهذا الباركود");
+      if(!keepCameraOpen()) setTimeout(stopSuperScanner, 350);
+      return;
+    }
+    addProductToCart(product);
+    addChip(product);
+    scannerToast(product.name || code);
+    toast("تمت إضافة " + (product.name || "المنتج"));
+    if(!keepCameraOpen()) setTimeout(stopSuperScanner, 420);
+  }
+
+  function supportedFormats(){
+    const F = window.Html5QrcodeSupportedFormats;
+    if(!F) return undefined;
+    return [
+      F.QR_CODE,
+      F.EAN_13,
+      F.EAN_8,
+      F.UPC_A,
+      F.UPC_E,
+      F.CODE_128,
+      F.CODE_39,
+      F.CODE_93,
+      F.ITF,
+      F.CODABAR,
+      F.DATA_MATRIX,
+      F.AZTEC,
+      F.PDF_417
+    ].filter(Boolean);
+  }
+  function exactFastConfig(){
+    return {
+      fps:30,
+      qrbox:function(viewfinderWidth, viewfinderHeight){
+        return {
+          width:Math.floor(viewfinderWidth * 0.82),
+          height:Math.floor(viewfinderHeight * 0.34)
+        };
+      },
+      aspectRatio:1.7777778,
+      disableFlip:false,
+      rememberLastUsedCamera:true,
+      experimentalFeatures:{useBarCodeDetectorIfSupported:true},
+      videoConstraints:{
+        facingMode:{ideal:"environment"},
+        width:{ideal:1920},
+        height:{ideal:1080},
+        advanced:[
+          {focusMode:"continuous"},
+          {exposureMode:"continuous"},
+          {whiteBalanceMode:"continuous"}
+        ]
+      }
+    };
+  }
+
+  async function openSuperScanner(mode, targetInputId){
+    currentMode = mode || "sale";
+    currentTargetInput = targetInputId || "";
+    unlockSound();
+    hideOldScannerLayers();
+    try{ if(oldStopScanner) oldStopScanner(); }catch(e){}
+    try{ if(oldStopFloatingScanner) oldStopFloatingScanner(); }catch(e){}
+
+    const page = ensureDom();
+    const reader = $("oskarSuperReader");
+    const title = $("oskarSuperTitle");
+    const added = $("oskarSuperAdded");
+    if(added) added.innerHTML = "";
+    if(title) title.innerHTML = (currentMode === "product" ? "قراءة باركود المنتج" : "قراءة باركود للبيع") + "<small>نفس نظام الكاميرا السريع 30fps وقراءة من كل الجهات</small>";
+    if(reader) reader.innerHTML = "";
+    page.classList.add("show");
+    rebuildProductIndexIfNeeded();
+
+    if(startPromise) return startPromise;
+    startPromise = (async function(){
+      try{
+        await ensureHtml5Qrcode();
+        if(!window.Html5Qrcode) throw new Error("Html5Qrcode unavailable");
+        await stopSuperScanner();
+        hideOldScannerLayers();
+        ensureDom().classList.add("show");
+        const r = $("oskarSuperReader");
+        if(r) r.innerHTML = "";
+        const __oskarFormats = supportedFormats();
+        scanner = new Html5Qrcode("oskarSuperReader", __oskarFormats ? {formatsToSupport:__oskarFormats, verbose:false} : {verbose:false});
+        await scanner.start(
+          {facingMode:"environment"},
+          exactFastConfig(),
+          handleDecodedCode,
+          function(){}
+        );
+        isRunning = true;
+        startPromise = null;
+      }catch(err){
+        console.warn("super fast barcode first start failed", err);
+        try{
+          if(scanner){ try{ await scanner.clear(); }catch(e){} }
+          const r = $("oskarSuperReader");
+          if(r) r.innerHTML = "";
+          const __oskarFallbackFormats = supportedFormats();
+          scanner = new Html5Qrcode("oskarSuperReader", __oskarFallbackFormats ? {formatsToSupport:__oskarFallbackFormats, verbose:false} : {verbose:false});
+          await scanner.start(
+            {facingMode:{ideal:"environment"}},
+            {
+              fps:24,
+              qrbox:function(w,h){ return {width:Math.floor(w * 0.82), height:Math.floor(h * 0.34)}; },
+              disableFlip:false,
+              experimentalFeatures:{useBarCodeDetectorIfSupported:true},
+              videoConstraints:{facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720}}
+            },
+            handleDecodedCode,
+            function(){}
+          );
+          isRunning = true;
+          startPromise = null;
+        }catch(e){
+          console.error(e);
+          startPromise = null;
+          await stopSuperScanner();
+          toast("اسمح باستخدام الكاميرا وتأكد أن الموقع يعمل على HTTPS");
+        }
+      }
+    })();
+    return startPromise;
+  }
+
+  function replaceCameraButtons(){
+    const sale = $("openScannerBtn");
+    if(sale && sale.id !== "openScannerBtnSuper"){
+      const clone = sale.cloneNode(true);
+      clone.id = "openScannerBtnSuper";
+      clone.dataset.oskarSuperCamera = "sale";
+      sale.replaceWith(clone);
+    }
+    const sale2 = $("openScannerBtnSuper");
+    if(sale2 && sale2.dataset.oskarBound !== "1"){
+      sale2.dataset.oskarBound = "1";
+      sale2.addEventListener("click", function(e){ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); openSuperScanner("sale", ""); }, true);
+    }
+    const product = $("scanProductBarcodeBtn");
+    if(product && product.id !== "scanProductBarcodeBtnSuper"){
+      const clone = product.cloneNode(true);
+      clone.id = "scanProductBarcodeBtnSuper";
+      clone.dataset.oskarSuperCamera = "product";
+      product.replaceWith(clone);
+    }
+    const product2 = $("scanProductBarcodeBtnSuper");
+    if(product2 && product2.dataset.oskarBound !== "1"){
+      product2.dataset.oskarBound = "1";
+      product2.addEventListener("click", function(e){ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); openSuperScanner("product", "productBarcode"); }, true);
+    }
+  }
+
+  document.addEventListener("click", function(e){
+    const sale = e.target.closest && e.target.closest('#openScannerBtnSuper,[data-oskar-super-camera="sale"]');
+    const product = e.target.closest && e.target.closest('#scanProductBarcodeBtnSuper,[data-oskar-super-camera="product"]');
+    if(sale){ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); openSuperScanner("sale", ""); return; }
+    if(product){ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); openSuperScanner("product", "productBarcode"); return; }
+  }, true);
+
+  window.openScanner = function(mode, target){ return openSuperScanner(mode || "sale", target || ""); };
+  window.openFloatingProductBarcodeScanner = function(target){ return openSuperScanner("product", target || "productBarcode"); };
+  window.stopScanner = stopSuperScanner;
+  window.stopFloatingScanner = stopSuperScanner;
+  window.OSKAR_openSuperFastBarcodeScanner = openSuperScanner;
+
+  function init(){
+    ensureDom();
+    replaceCameraButtons();
+    prewarmScannerLib();
+    setTimeout(replaceCameraButtons, 300);
+    setTimeout(replaceCameraButtons, 1200);
+    const mo = new MutationObserver(replaceCameraButtons);
+    mo.observe(document.body, {childList:true, subtree:true});
+  }
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init, {once:true}); else init();
+  document.addEventListener("visibilitychange", function(){ if(document.hidden && isRunning) stopSuperScanner(); });
+  window.addEventListener("beforeunload", function(){ if(isRunning && scanner) scanner.stop().catch(()=>{}); });
+})();
+</script>
+
+
+<script id="oskar-null-onclick-and-barcode-final-guard-2026-05-05">
+(function(){
+  "use strict";
+  const $ = id => document.getElementById(id);
+  function toast(msg, ms){
+    if(typeof window.toast === "function") return window.toast(msg, ms || 2600);
+    const el = $("toast");
+    if(el){ el.textContent = msg; el.classList.add("show"); clearTimeout(el.__guardToast); el.__guardToast = setTimeout(()=>el.classList.remove("show"), ms || 2600); }
+  }
+  window.addEventListener("error", function(e){
+    const msg = String(e.message || "");
+    if(msg.includes("Cannot set properties of null") && msg.includes("onclick")){
+      e.preventDefault();
+      console.warn("تم تجاوز ربط زر غير موجود بدون إيقاف التطبيق", msg);
+      toast("تم إصلاح ربط زر ناقص تلقائياً");
+      return true;
+    }
+  }, true);
+  const QR_SOUND_SRC = "./qr.mp3";
+  const HTML5_QRCODE_SRC = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
+  const scanSound = new Audio(QR_SOUND_SRC);
+  scanSound.preload = "auto";
+  scanSound.volume = 1;
+  function unlockSound(){ scanSound.play().then(()=>{ scanSound.pause(); scanSound.currentTime = 0; }).catch(()=>{}); }
+  document.addEventListener("click", unlockSound, { once:true, passive:true });
+  document.addEventListener("touchstart", unlockSound, { once:true, passive:true });
+  function beep(){ try{ scanSound.pause(); scanSound.currentTime = 0; scanSound.play().catch(()=>{}); }catch{} }
+  function vibrate(){ if(navigator.vibrate) navigator.vibrate([55,25,55]); }
+  function ensureStyle(){
+    if($("oskarBarcodeTurboFinalStyle")) return;
+    const st = document.createElement("style");
+    st.id = "oskarBarcodeTurboFinalStyle";
+    st.textContent = '.barcode-turbo-page{position:fixed;inset:0;background:#000;z-index:999999;display:none;direction:rtl}.barcode-turbo-page.show{display:block}.barcode-turbo-reader{width:100vw;height:100vh;background:#000}.barcode-turbo-reader video{width:100vw!important;height:100vh!important;object-fit:cover!important}.barcode-turbo-reader__dashboard,#barcodeTurboReader__dashboard,#barcodeTurboReader__scan_region{display:none!important}.barcode-turbo-frame{pointer-events:none;position:fixed;top:50%;left:50%;width:min(82vw,420px);height:230px;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.55);border-radius:26px;z-index:1000001;transition:.15s ease;box-shadow:0 0 0 9999px rgba(0,0,0,.18),0 0 30px rgba(255,255,255,.15)}.barcode-turbo-frame:before,.barcode-turbo-frame:after{content:"";position:absolute;width:54px;height:54px;border-color:#22c55e;border-style:solid;filter:drop-shadow(0 0 12px rgba(34,197,94,.95))}.barcode-turbo-frame:before{top:-4px;right:-4px;border-width:6px 6px 0 0;border-radius:0 22px 0 0}.barcode-turbo-frame:after{left:-4px;bottom:-4px;border-width:0 0 6px 6px;border-radius:0 0 0 22px}.barcode-turbo-laser{position:fixed;top:50%;left:50%;width:min(72vw,360px);height:3px;transform:translate(-50%,-50%);z-index:1000002;border-radius:999px;background:linear-gradient(90deg,transparent,#22c55e,transparent);box-shadow:0 0 22px #22c55e;animation:barcodeTurboLaser 1.05s ease-in-out infinite;pointer-events:none}@keyframes barcodeTurboLaser{0%,100%{transform:translate(-50%,calc(-50% - 95px));opacity:.55}50%{transform:translate(-50%,calc(-50% + 95px));opacity:1}}.barcode-turbo-page.detected .barcode-turbo-frame{border-color:#22c55e;box-shadow:0 0 0 9999px rgba(0,0,0,.13),0 0 40px rgba(34,197,94,.9),inset 0 0 35px rgba(34,197,94,.25);animation:barcodeTurboPop .28s ease}@keyframes barcodeTurboPop{0%{transform:translate(-50%,-50%) scale(.96)}60%{transform:translate(-50%,-50%) scale(1.03)}100%{transform:translate(-50%,-50%) scale(1)}}.barcode-turbo-close{position:fixed;top:16px;left:16px;width:48px;height:48px;border:0;border-radius:16px;background:rgba(15,23,42,.86);color:#fff;font-size:25px;font-weight:900;z-index:1000005}.barcode-turbo-title{position:fixed;top:17px;right:16px;z-index:1000005;max-width:calc(100vw - 90px);background:rgba(15,23,42,.86);color:#fff;border-radius:16px;padding:10px 14px;font-family:Cairo,Arial,sans-serif;font-weight:900;font-size:14px}.barcode-turbo-hint{position:fixed;right:16px;left:16px;bottom:24px;z-index:1000005;padding:13px 16px;border-radius:18px;background:rgba(15,23,42,.88);color:#fff;font-weight:900;text-align:center;font-family:Cairo,Arial,sans-serif;border:1px solid rgba(255,255,255,.14)}';
+    document.head.appendChild(st);
+  }
+  function loadQr(){
+    if(window.Html5Qrcode) return Promise.resolve(true);
+    return new Promise((resolve,reject)=>{
+      const old = Array.from(document.scripts).find(s => (s.src || "").includes("html5-qrcode"));
+      if(old){ old.addEventListener("load", ()=>resolve(true), {once:true}); old.addEventListener("error", reject, {once:true}); setTimeout(()=>window.Html5Qrcode ? resolve(true) : reject(new Error("qr-load-timeout")), 4000); return; }
+      const sc = document.createElement("script"); sc.src = HTML5_QRCODE_SRC; sc.async = true; sc.onload = ()=>resolve(true); sc.onerror = reject; document.head.appendChild(sc);
+    });
+  }
+  function scannerDom(){
+    ensureStyle();
+    let page = $("barcodeTurboPage");
+    if(page) return page;
+    page = document.createElement("div");
+    page.id = "barcodeTurboPage";
+    page.className = "barcode-turbo-page";
+    page.innerHTML = '<div id="barcodeTurboReader" class="barcode-turbo-reader"></div><div class="barcode-turbo-frame"></div><div class="barcode-turbo-laser"></div><button id="barcodeTurboClose" class="barcode-turbo-close" type="button">×</button><div id="barcodeTurboTitle" class="barcode-turbo-title">قراءة باركود</div><div class="barcode-turbo-hint">وجّه الكاميرا نحو الباركود من أي جهة</div>';
+    document.body.appendChild(page);
+    const close = page.querySelector("#barcodeTurboClose");
+    if(close) close.onclick = () => stopTurboScanner();
+    return page;
+  }
+  let scanner = null, running = false, mode = "sale", target = "", lastCode = "", lastAt = 0;
+  async function stopTurboScanner(){
+    if(scanner && running){ try{ await scanner.stop(); }catch{} }
+    if(scanner){ try{ await scanner.clear(); }catch{} }
+    scanner = null; running = false;
+    const page = $("barcodeTurboPage");
+    if(page) page.classList.remove("show");
+    try{ if(window.state?.scanner){ window.state.scanner.locked = false; window.state.scanner.active = false; } }catch{}
+  }
+  function markDetected(){
+    const page = $("barcodeTurboPage");
+    if(!page) return;
+    page.classList.add("detected");
+    clearTimeout(page.__detectedTimer);
+    page.__detectedTimer = setTimeout(()=>page.classList.remove("detected"), 550);
+  }
+  function findProduct(code){
+    const c = String(code || "").trim();
+    if(!c) return null;
+    try{ if(typeof window.getProductByBarcode === "function"){ const p = window.getProductByBarcode(c); if(p) return p; } }catch{}
+    return (window.state?.products || []).find(p => String(p.barcode || "").trim() === c || String(p.code || "").trim() === c || String(p.id || "").trim() === c) || null;
+  }
+  function addProduct(product){
+    if(!product) return;
+    try{
+      const st = window.state;
+      const line = st?.cart?.find(x => x.productId === product.id);
+      if(line && typeof window.updateCartLine === "function") return window.updateCartLine(line.id, { qty: Number(line.qty || 0) + 1 }, true);
+      if(typeof window.addToCart === "function") return window.addToCart(product);
+    }catch{}
+  }
+  function handleCode(code){
+    code = String(code || "").trim();
+    if(!code) return;
+    markDetected(); beep(); vibrate();
+    if(mode === "product" || target){
+      const input = $(target || "productBarcode");
+      if(input){ input.value = code; input.dispatchEvent(new Event("input", {bubbles:true})); input.dispatchEvent(new Event("change", {bubbles:true})); }
+      toast("تمت قراءة الباركود ووضعه في خانة المنتج");
+      stopTurboScanner();
+      return;
+    }
+    const product = findProduct(code);
+    if(product){ addProduct(product); toast("تمت إضافة " + (product.name || "المنتج")); stopTurboScanner(); }
+    else toast("لم يتم العثور على منتج بهذا الباركود");
+  }
+  async function openTurboScanner(nextMode, inputId){
+    mode = nextMode || "sale"; target = inputId || "";
+    try{ await loadQr(); }catch{ return toast("تعذر تحميل قارئ الباركود"); }
+    if(!window.Html5Qrcode) return toast("تعذر تشغيل قارئ الباركود");
+    await stopTurboScanner();
+    const page = scannerDom();
+    const reader = $("barcodeTurboReader");
+    if(reader) reader.innerHTML = "";
+    const title = $("barcodeTurboTitle");
+    if(title) title.textContent = mode === "product" ? "قراءة باركود المنتج" : "قراءة باركود للبيع";
+    page.classList.add("show");
+    await new Promise(r => requestAnimationFrame(()=>requestAnimationFrame(r)));
+    try{
+      const F = window.Html5QrcodeSupportedFormats;
+      const formats = F ? [F.QR_CODE,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128,F.CODE_39,F.CODE_93,F.ITF,F.CODABAR,F.DATA_MATRIX,F.AZTEC,F.PDF_417].filter(Boolean) : undefined;
+      scanner = new window.Html5Qrcode("barcodeTurboReader", formats ? { formatsToSupport: formats, verbose:false } : { verbose:false });
+      const config = { fps:30, qrbox:(w,h)=>({ width:Math.floor(w * .82), height:Math.floor(h * .34) }), aspectRatio:1.7777778, disableFlip:false, experimentalFeatures:{ useBarCodeDetectorIfSupported:true }, videoConstraints:{ facingMode:{ ideal:"environment" }, width:{ ideal:1920 }, height:{ ideal:1080 }, advanced:[{ focusMode:"continuous" },{ exposureMode:"continuous" },{ whiteBalanceMode:"continuous" }] } };
+      const onScan = txt => { const c = String(txt || "").trim(); const t = Date.now(); if(!c) return; if(c === lastCode && t - lastAt < 1200) return; lastCode = c; lastAt = t; handleCode(c); };
+      await scanner.start({ facingMode:{ ideal:"environment" } }, config, onScan, ()=>{});
+      running = true;
+    }catch(err){
+      console.warn("turbo scanner failed, fallback", err);
+      try{
+        if(scanner){ try{ await scanner.clear(); }catch{} }
+        const reader = $("barcodeTurboReader"); if(reader) reader.innerHTML = "";
+        scanner = new window.Html5Qrcode("barcodeTurboReader", { verbose:false });
+        await scanner.start({ facingMode:"environment" }, { fps:18, qrbox:(w,h)=>({ width:Math.floor(w * .78), height:Math.floor(h * .30) }), disableFlip:false }, txt => { const c=String(txt||"").trim(); if(c) handleCode(c); }, ()=>{});
+        running = true;
+      }catch(e){ console.error(e); await stopTurboScanner(); toast("اسمح باستخدام الكاميرا وتأكد أن الرابط HTTPS"); }
+    }
+  }
+  window.openScanner = function(m, input){ return openTurboScanner(m || "sale", input || ""); };
+  window.openFloatingProductBarcodeScanner = function(input){ return openTurboScanner("product", input || "productBarcode"); };
+  window.stopScanner = stopTurboScanner;
+  window.stopFloatingScanner = stopTurboScanner;
+  document.addEventListener("click", function(e){
+    const sale = e.target.closest("#openScannerBtn");
+    const product = e.target.closest("#scanProductBarcodeBtn");
+    const close = e.target.closest("#floatingScannerCloseBtn,#stopScannerBtn,#barcodeTurboClose");
+    if(sale){ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); openTurboScanner("sale", ""); return; }
+    if(product){ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); openTurboScanner("product", "productBarcode"); return; }
+    if(close){ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); stopTurboScanner(); }
+  }, true);
+  document.addEventListener("visibilitychange", ()=>{ if(document.hidden && running) stopTurboScanner(); });
+})();
+</script>
+
+
+<!-- OSKAR_USER_FINAL_FAST_BARCODE_BACKUP_SYNC_PATCH_2026_05_05 -->
+<style id="oskarUserExactBarcodeStyle20260505">
+  .oskar-user-camera-page{position:fixed;inset:0;background:#000;z-index:2147483647;display:none;direction:rtl;font-family:Cairo,Arial,sans-serif;overflow:hidden}
+  .oskar-user-camera-page.show{display:block}
+  #oskarUserReader{width:100vw;height:100vh;background:#000}
+  #oskarUserReader video{width:100vw!important;height:100vh!important;object-fit:cover!important}
+  #oskarUserReader__scan_region,#oskarUserReader__dashboard{display:none!important}
+  .oskar-user-scan-frame{pointer-events:none;position:fixed;top:50%;left:50%;width:min(82vw,420px);height:230px;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.55);border-radius:26px;z-index:2147483647;transition:.15s ease;box-shadow:0 0 0 9999px rgba(0,0,0,.18),0 0 30px rgba(255,255,255,.15)}
+  .oskar-user-scan-frame:before,.oskar-user-scan-frame:after{content:"";position:absolute;width:54px;height:54px;border-color:#22c55e;border-style:solid;filter:drop-shadow(0 0 12px rgba(34,197,94,.95))}
+  .oskar-user-scan-frame:before{top:-4px;right:-4px;border-width:6px 6px 0 0;border-radius:0 22px 0 0}
+  .oskar-user-scan-frame:after{left:-4px;bottom:-4px;border-width:0 0 6px 6px;border-radius:0 0 0 22px}
+  .oskar-user-laser{position:fixed;top:50%;left:50%;width:min(72vw,360px);height:3px;transform:translate(-50%,-50%);z-index:2147483647;border-radius:999px;background:linear-gradient(90deg,transparent,#22c55e,transparent);box-shadow:0 0 22px #22c55e;animation:oskarUserLaserMove 1.2s ease-in-out infinite;pointer-events:none}
+  @keyframes oskarUserLaserMove{0%,100%{transform:translate(-50%,calc(-50% - 95px));opacity:.55}50%{transform:translate(-50%,calc(-50% + 95px));opacity:1}}
+  .oskar-user-camera-page.detected .oskar-user-scan-frame{border-color:#22c55e;box-shadow:0 0 0 9999px rgba(0,0,0,.13),0 0 40px rgba(34,197,94,.9),inset 0 0 35px rgba(34,197,94,.25);animation:oskarUserGreenPop .28s ease}
+  @keyframes oskarUserGreenPop{0%{transform:translate(-50%,-50%) scale(.96)}60%{transform:translate(-50%,-50%) scale(1.03)}100%{transform:translate(-50%,-50%) scale(1)}}
+  .oskar-user-scanner-toast{position:fixed;right:16px;left:16px;bottom:28px;z-index:2147483647;padding:15px 18px;border-radius:18px;background:rgba(15,23,42,.96);color:#fff;font-size:16px;font-weight:900;text-align:center;box-shadow:0 18px 45px rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.15);transform:translateY(130%);opacity:0;transition:.25s ease;direction:ltr}
+  .oskar-user-scanner-toast.show{transform:translateY(0);opacity:1}
+  .oskar-user-close{position:fixed;top:16px;left:16px;z-index:2147483647;width:48px;height:48px;border:0;border-radius:16px;background:rgba(15,23,42,.86);color:white;font-size:26px;font-weight:900}
+  .oskar-user-title{position:fixed;top:17px;right:16px;z-index:2147483647;max-width:calc(100vw - 90px);background:rgba(15,23,42,.86);color:#fff;border-radius:16px;padding:10px 14px;font-weight:900;font-size:14px;line-height:1.6}
+</style>
+<script id="oskarUserFinalFastBarcodeBackupSyncPatch20260505">
+(function(){
+  "use strict";
+  if(window.__OSKAR_USER_FINAL_FAST_BARCODE_20260505__) return;
+  window.__OSKAR_USER_FINAL_FAST_BARCODE_20260505__ = true;
+  const $ = id => document.getElementById(id);
+  const HTML5_QRCODE_SRC = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
+  const scanSound = new Audio("./qr.mp3");
+  scanSound.preload = "auto";
+  scanSound.volume = 1;
+  let scanner = null, isRunning = false, lastCode = "", lastTime = 0, mode = "sale", targetInput = "", libPromise = null;
+  const toast = (msg,ms)=> typeof window.toast === "function" ? window.toast(msg,ms||1800) : console.log(msg);
+  function unlockSound(){ scanSound.play().then(()=>{scanSound.pause();scanSound.currentTime=0;}).catch(()=>{}); }
+  document.addEventListener("click", unlockSound, {once:true, passive:true});
+  document.addEventListener("touchstart", unlockSound, {once:true, passive:true});
+  function ensureLib(){
+    if(window.Html5Qrcode) return Promise.resolve(true);
+    if(libPromise) return libPromise;
+    libPromise = new Promise((resolve,reject)=>{
+      const old = Array.from(document.scripts).find(s => (s.src||"").includes("html5-qrcode"));
+      if(old){
+        old.addEventListener("load",()=>resolve(true),{once:true});
+        old.addEventListener("error",reject,{once:true});
+        setTimeout(()=>window.Html5Qrcode ? resolve(true) : reject(new Error("qr-load-timeout")), 3500);
+        return;
+      }
+      const sc=document.createElement("script"); sc.src=HTML5_QRCODE_SRC; sc.async=true; sc.onload=()=>resolve(true); sc.onerror=reject; document.head.appendChild(sc);
+    });
+    return libPromise;
+  }
+  function dom(){
+    let page = $("oskarUserCameraPage");
+    if(page) return page;
+    page = document.createElement("div");
+    page.id = "oskarUserCameraPage";
+    page.className = "oskar-user-camera-page";
+    page.innerHTML = '<div id="oskarUserReader"></div><div class="oskar-user-scan-frame"></div><div class="oskar-user-laser"></div><button id="oskarUserScannerClose" class="oskar-user-close" type="button">×</button><div id="oskarUserScannerTitle" class="oskar-user-title">كاميرا قارئ الباركود</div><div id="oskarUserScannerToast" class="oskar-user-scanner-toast"></div>';
+    document.body.appendChild(page);
+    $("oskarUserScannerClose").onclick = stopCameraScanner;
+    return page;
+  }
+  function scannerToast(code){ const box=$("oskarUserScannerToast"); if(!box) return; box.textContent=code; box.classList.add("show"); clearTimeout(box.__t); box.__t=setTimeout(()=>box.classList.remove("show"), 1300); }
+  function playBeep(){ try{ scanSound.pause(); scanSound.currentTime=0; scanSound.play().catch(()=>{}); }catch{} }
+  function vibratePhone(){ if(navigator.vibrate) navigator.vibrate([55,25,55]); }
+  function markDetected(){ const page=$("oskarUserCameraPage"); if(!page) return; page.classList.add("detected"); clearTimeout(page.__det); page.__det=setTimeout(()=>page.classList.remove("detected"),550); }
+  async function stopCameraScanner(){
+    try{ if(scanner && isRunning) await scanner.stop(); }catch{}
+    try{ if(scanner) await scanner.clear(); }catch{}
+    scanner = null; isRunning = false;
+    const page=$("oskarUserCameraPage"); if(page) page.classList.remove("show","detected");
+  }
+  function findProduct(code){
+    const c=String(code||"").trim(); if(!c) return null;
+    try{ if(typeof window.getProductByBarcode === "function"){ const p=window.getProductByBarcode(c); if(p) return p; } }catch{}
+    return (window.state?.products||[]).find(p => String(p.barcode||"").trim()===c || String(p.code||"").trim()===c || String(p.id||"").trim()===c) || null;
+  }
+  function addProduct(product){
+    if(!product) return false;
+    try{
+      const line=(window.state?.cart||[]).find(x=>String(x.productId)===String(product.id));
+      if(line && typeof window.updateCartLine === "function"){ window.updateCartLine(line.id,{qty:Number(line.qty||0)+1},true); return true; }
+      if(typeof window.addToCart === "function"){ window.addToCart(product); return true; }
+    }catch(e){ console.warn(e); }
+    return false;
+  }
+  function handleCode(decodedText, decodedResult){
+    const code=String(decodedText||"").trim(); const now=Date.now();
+    if(!code || (code===lastCode && now-lastTime<1400)) return;
+    lastCode=code; lastTime=now;
+    markDetected(); playBeep(); vibratePhone(); scannerToast(code);
+    window.dispatchEvent(new CustomEvent("barcode:scanned",{detail:{code:code,result:decodedResult||null,mode:mode,targetInputId:targetInput}}));
+    if(mode==="product" || targetInput){
+      const input=$(targetInput || "productBarcode");
+      if(input){ input.value=code; input.dispatchEvent(new Event("input",{bubbles:true})); input.dispatchEvent(new Event("change",{bubbles:true})); }
+      toast("تمت قراءة الباركود ووضعه في خانة المنتج");
+      setTimeout(stopCameraScanner, 260);
+      return;
+    }
+    const product=findProduct(code);
+    if(product){ addProduct(product); toast("تمت إضافة " + (product.name || "المنتج")); setTimeout(stopCameraScanner, 300); }
+    else toast("لم يتم العثور على منتج بهذا الباركود");
+  }
+  function formats(){
+    const F=window.Html5QrcodeSupportedFormats; if(!F) return undefined;
+    return [F.QR_CODE,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128,F.CODE_39,F.CODE_93,F.ITF,F.CODABAR,F.DATA_MATRIX,F.AZTEC,F.PDF_417].filter(Boolean);
+  }
+  function config(){ return {fps:30,qrbox:function(w,h){return {width:Math.floor(w*.82),height:Math.floor(h*.34)}},aspectRatio:1.7777778,disableFlip:false,rememberLastUsedCamera:true,experimentalFeatures:{useBarCodeDetectorIfSupported:true},videoConstraints:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:"continuous"},{exposureMode:"continuous"},{whiteBalanceMode:"continuous"}]}}; }
+  async function startCameraScanner(nextMode="sale", inputId=""){
+    mode=nextMode||"sale"; targetInput=inputId||"";
+    unlockSound();
+    const page=dom(), reader=$("oskarUserReader"), title=$("oskarUserScannerTitle");
+    if(title) title.textContent = mode === "product" ? "قراءة باركود المنتج" : "كاميرا قارئ الباركود";
+    if(reader) reader.innerHTML="";
+    page.classList.add("show");
+    try{ if(window.stopScanner && window.stopScanner !== stopCameraScanner) await Promise.resolve(window.stopScanner()).catch(()=>{}); }catch{}
+    try{ await ensureLib(); }catch{ toast("تعذر تحميل قارئ الباركود"); return; }
+    try{
+      if(scanner){ try{ await scanner.clear(); }catch{} }
+      scanner = new Html5Qrcode("oskarUserReader", formats()?{formatsToSupport:formats(),verbose:false}:{verbose:false});
+      await scanner.start({facingMode:{ideal:"environment"}}, config(), handleCode, function(){});
+      isRunning = true;
+    }catch(err){
+      console.warn("exact fast scanner failed, fallback", err);
+      try{
+        if(scanner){ try{ await scanner.clear(); }catch{} }
+        if(reader) reader.innerHTML="";
+        scanner = new Html5Qrcode("oskarUserReader", formats()?{formatsToSupport:formats(),verbose:false}:{verbose:false});
+        await scanner.start({facingMode:"environment"},{fps:18,qrbox:function(w,h){return {width:Math.floor(w*.78),height:Math.floor(h*.30)}},disableFlip:false,experimentalFeatures:{useBarCodeDetectorIfSupported:true}},handleCode,function(){});
+        isRunning = true;
+      }catch(e){ console.error(e); await stopCameraScanner(); toast("اسمح باستخدام الكاميرا وتأكد أن الرابط HTTPS"); }
+    }
+  }
+  function replaceScannerButton(oldId, newId, kind){
+    const old=$(oldId); if(!old || old.id===newId) return;
+    const clone=old.cloneNode(true); clone.id=newId; clone.dataset.oskarExactScanner=kind; old.replaceWith(clone);
+  }
+  function installButtons(){
+    replaceScannerButton("openScannerBtnSuper","openScannerBtnExact","sale");
+    replaceScannerButton("openScannerBtn","openScannerBtnExact","sale");
+    replaceScannerButton("scanProductBarcodeBtnSuper","scanProductBarcodeBtnExact","product");
+    replaceScannerButton("scanProductBarcodeBtn","scanProductBarcodeBtnExact","product");
+    ["openScannerBtnExact","scanProductBarcodeBtnExact"].forEach(id=>{ const b=$(id); if(b && b.dataset.oskarExactBound!=="1"){ b.dataset.oskarExactBound="1"; b.addEventListener("click",function(e){ e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); startCameraScanner(b.dataset.oskarExactScanner==="product"?"product":"sale", b.dataset.oskarExactScanner==="product"?"productBarcode":""); }, true); }});
+  }
+  window.openScanner = function(m,input){ return startCameraScanner(m||"sale", input||""); };
+  window.openFloatingProductBarcodeScanner = function(input){ return startCameraScanner("product", input||"productBarcode"); };
+  window.stopScanner = stopCameraScanner;
+  window.stopFloatingScanner = stopCameraScanner;
+  window.OSKAR_openExactFastBarcodeScanner = startCameraScanner;
+  function init(){ dom(); installButtons(); ensureLib().catch(()=>{}); setTimeout(installButtons,300); setTimeout(installButtons,1200); setTimeout(installButtons,2500); try{ new MutationObserver(installButtons).observe(document.body,{childList:true,subtree:true}); }catch{} }
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init, {once:true}); else init();
+  document.addEventListener("visibilitychange", function(){ if(document.hidden && isRunning) stopCameraScanner(); });
+  window.addEventListener("beforeunload", function(){ if(scanner && isRunning) scanner.stop().catch(()=>{}); });
+  window.addEventListener("online", function(){
+    if(typeof window.refreshPendingCount === "function") window.refreshPendingCount().catch(()=>{});
+    if(typeof window.syncNow === "function") setTimeout(()=>window.syncNow(false).catch(()=>{}), 150);
+  });
 })();
 </script>
 
