@@ -2232,6 +2232,9 @@
                   <th>الجملة</th>
                   <th>البيع</th>
                   <th>الإجمالي</th>
+                  <th>حالة الدفع</th>
+                  <th>المدفوع</th>
+                  <th>المتبقي</th>
                   <th>حساب الدفع</th>
                   <th>ملاحظات</th>
                   <th>الإجراءات</th>
@@ -2793,6 +2796,25 @@
         <div>
           <label class="field-label">حساب الدفع</label>
           <select id="purchaseAccountId" class="select"></select>
+        </div>
+
+        <div>
+          <label class="field-label">حالة دفع المشتريات</label>
+          <select id="purchasePaymentStatus" class="select">
+            <option value="paid">مدفوعة كاملة</option>
+            <option value="partial">دفعة جزئية</option>
+            <option value="debt">دين عليّ للمورد</option>
+          </select>
+        </div>
+
+        <div id="purchasePaidAmountBox">
+          <label class="field-label">المدفوع الآن</label>
+          <input id="purchasePaidAmount" type="number" inputmode="decimal" class="input" value="0" min="0" step="0.001">
+        </div>
+
+        <div>
+          <label class="field-label">المتبقي للمورد</label>
+          <input id="purchaseDuePreview" class="input" value="₪ 0.00" disabled>
         </div>
       </div>
 
@@ -3801,6 +3823,10 @@
       const oldDebt = cleanNumber(c.debt || 0);
       const oldCredit = cleanNumber(c.credit || 0);
       const balance = typeof c.balance === "number" ? c.balance : oldDebt - oldCredit;
+      const deletedManualDebtIds = Array.from(new Set(Array.isArray(c.deletedManualDebtIds) ? c.deletedManualDebtIds.map(String) : []));
+      const deletedPaymentIds = Array.from(new Set(Array.isArray(c.deletedPaymentIds) ? c.deletedPaymentIds.map(String) : []));
+      const deletedManualSet = new Set(deletedManualDebtIds);
+      const deletedPaymentSet = new Set(deletedPaymentIds);
 
       return {
         id: c.id || uid("cus"),
@@ -3811,8 +3837,10 @@
         totalPaid: cleanNumber(c.totalPaid || c.paid || 0),
         invoicesCount: cleanNumber(c.invoicesCount || 0),
         dueDate: c.dueDate || "",
-        payments: Array.isArray(c.payments) ? c.payments : [],
-        manualDebts: Array.isArray(c.manualDebts) ? c.manualDebts : [],
+        payments: (Array.isArray(c.payments) ? c.payments : []).filter(p => p && !p.deleted && !deletedPaymentSet.has(String(p.id || p.paymentId || ""))),
+        manualDebts: (Array.isArray(c.manualDebts) ? c.manualDebts : []).filter(d => d && !d.deleted && !deletedManualSet.has(String(d.id || d.debtId || ""))),
+        deletedManualDebtIds,
+        deletedPaymentIds,
         createdAt: c.createdAt || Date.now(),
         updatedAt: c.updatedAt || Date.now()
       };
@@ -3856,7 +3884,13 @@
 
     function productIndexSignature() {
       const arr = state.products || [];
-      return arr.length + ":" + arr.map(p => `${p.id || ""}:${p.updatedAt || ""}:${p.barcode || ""}:${p.code || ""}`).join("|");
+      let maxStamp = 0;
+      for (let i = 0; i < arr.length; i++) {
+        const p = arr[i] || {};
+        const stamp = Math.max(Number(p.updatedAt || 0), Number(p.createdAt || 0));
+        if (stamp > maxStamp) maxStamp = stamp;
+      }
+      return arr.length + ":" + maxStamp;
     }
 
     function rebuildProductFastIndex(force = false) {
@@ -4917,14 +4951,20 @@
       const r = remote || {};
       const l = local || {};
       const newest = oskarCfItemTime(l) >= oskarCfItemTime(r) ? l : r;
+      const deletedManualDebtIds = Array.from(new Set([...(Array.isArray(r.deletedManualDebtIds) ? r.deletedManualDebtIds : []), ...(Array.isArray(l.deletedManualDebtIds) ? l.deletedManualDebtIds : [])].map(String)));
+      const deletedPaymentIds = Array.from(new Set([...(Array.isArray(r.deletedPaymentIds) ? r.deletedPaymentIds : []), ...(Array.isArray(l.deletedPaymentIds) ? l.deletedPaymentIds : [])].map(String)));
+      const deletedManual = new Set(deletedManualDebtIds);
+      const deletedPayments = new Set(deletedPaymentIds);
       return normalizeCustomer({
         ...r,
         ...newest,
         id: l.id || r.id,
         name: newest.name || l.name || r.name || "زبون",
         phone: newest.phone || l.phone || r.phone || "",
-        payments: oskarCfMergeArrays(r.payments, l.payments),
-        manualDebts: oskarCfMergeArrays(r.manualDebts, l.manualDebts),
+        payments: oskarCfMergeArrays(r.payments, l.payments).filter(p => !deletedPayments.has(String(p.id || p.paymentId || ""))),
+        manualDebts: oskarCfMergeArrays(r.manualDebts, l.manualDebts).filter(d => !deletedManual.has(String(d.id || d.debtId || ""))),
+        deletedManualDebtIds,
+        deletedPaymentIds,
         updatedAt: Math.max(oskarCfItemTime(r), oskarCfItemTime(l), Date.now())
       });
     }
@@ -6383,73 +6423,63 @@
         invoicesCount: cleanNumber(c.invoicesCount),
         payments: c.payments || [],
         manualDebts: c.manualDebts || [],
+        deletedManualDebtIds: c.deletedManualDebtIds || [],
+        deletedPaymentIds: c.deletedPaymentIds || [],
         dueDate: c.dueDate || ""
       });
     }
 
     function rebuildCustomerBalances(save = true) {
       const beforeSignatures = new Map((state.customers || []).map(c => [c.id, customerPersistSignature(normalizeCustomer(c))]));
-      const map = new Map(state.customers.map(c => [c.id, normalizeCustomer(c)]));
+      const map = new Map((state.customers || []).map(c => [c.id, normalizeCustomer(c)]));
+      const byPhone = new Map();
+      const byName = new Map();
 
       for (const c of map.values()) {
         c.balance = 0;
         c.totalSales = 0;
         c.totalPaid = 0;
         c.invoicesCount = 0;
+        c.deletedManualDebtIds = Array.from(new Set(Array.isArray(c.deletedManualDebtIds) ? c.deletedManualDebtIds.map(String) : []));
+        c.deletedPaymentIds = Array.from(new Set(Array.isArray(c.deletedPaymentIds) ? c.deletedPaymentIds.map(String) : []));
+        const deletedManual = new Set(c.deletedManualDebtIds);
+        const deletedPayments = new Set(c.deletedPaymentIds);
+        c.manualDebts = (c.manualDebts || []).filter(d => d && !d.deleted && !deletedManual.has(String(d.id || d.debtId || "")));
+        c.payments = (c.payments || []).filter(p => p && !p.deleted && !deletedPayments.has(String(p.id || p.paymentId || "")));
+        if (c.phone && !byPhone.has(String(c.phone))) byPhone.set(String(c.phone), c);
+        if (c.name && !byName.has(String(c.name))) byName.set(String(c.name), c);
       }
 
-      state.invoices.forEach(inv => {
-        if (!["debt", "later_app", "instant_app"].includes(inv.paymentMethod)) return;
-
+      for (const inv of (state.invoices || [])) {
+        if (!["debt", "later_app", "instant_app"].includes(inv.paymentMethod)) continue;
         let customer = inv.customerId ? map.get(inv.customerId) : null;
-
-        if (!customer && (inv.customerName || inv.customerPhone)) {
-          customer = [...map.values()].find(c =>
-            (inv.customerPhone && c.phone === inv.customerPhone) ||
-            (inv.customerName && c.name === inv.customerName)
-          );
-        }
-
-        if (!customer) return;
+        if (!customer && inv.customerPhone) customer = byPhone.get(String(inv.customerPhone));
+        if (!customer && inv.customerName) customer = byName.get(String(inv.customerName));
+        if (!customer) continue;
 
         customer.totalSales += cleanNumber(inv.total);
         customer.invoicesCount += 1;
-
-        if (["debt", "later_app"].includes(inv.paymentMethod) && inv.status !== "paid") {
-          customer.balance += cleanNumber(inv.total);
-        }
-
-        if (inv.paymentMethod === "instant_app" || (inv.paymentMethod === "later_app" && inv.status === "paid")) {
-          customer.totalPaid += cleanNumber(inv.total);
-        }
-      });
+        if (["debt", "later_app"].includes(inv.paymentMethod) && inv.status !== "paid") customer.balance += cleanNumber(inv.total);
+        if (inv.paymentMethod === "instant_app" || (inv.paymentMethod === "later_app" && inv.status === "paid")) customer.totalPaid += cleanNumber(inv.total);
+      }
 
       for (const customer of map.values()) {
-        (customer.manualDebts || []).forEach(d => {
-          if (d.status !== "paid") {
-            customer.balance += cleanNumber(d.amount);
-          } else {
-            customer.totalPaid += cleanNumber(d.amount);
-          }
-        });
-
-        (customer.payments || []).forEach(p => {
-          if (p.invoiceId || p.manualDebtId) return;
+        for (const d of (customer.manualDebts || [])) {
+          if (d.status !== "paid") customer.balance += cleanNumber(d.amount);
+          else customer.totalPaid += cleanNumber(d.amount);
+        }
+        for (const p of (customer.payments || [])) {
+          if (p.invoiceId || p.manualDebtId) continue;
           customer.balance -= cleanNumber(p.amount);
           customer.totalPaid += cleanNumber(p.amount);
-        });
-
+        }
         customer.updatedAt = customer.updatedAt || Date.now();
       }
 
-      state.customers = [...map.values()].map(normalizeCustomer);
-
+      state.customers = Array.from(map.values()).map(normalizeCustomer);
       if (save) {
         const changedCustomers = state.customers.filter(c => beforeSignatures.get(c.id) !== customerPersistSignature(c));
-        if (changedCustomers.length) {
-          saveLocalBatch(changedCustomers.map(c => ({ store: "customers", item: c })), true)
-            .catch(e => console.warn("customer balance batch save failed", e));
-        }
+        if (changedCustomers.length) saveLocalBatch(changedCustomers.map(c => ({ store: "customers", item: c })), true).catch(e => console.warn("customer balance batch save failed", e));
       }
     }
         function renderDebts() {
@@ -6539,6 +6569,27 @@
       }
     }
 
+    function getPurchasePaidAmount(p = {}) {
+      const total = cleanNumber(p.total || p.cost, 0);
+      const status = p.paymentStatus || (cleanNumber(p.dueAmount, 0) > 0 ? "partial" : "paid");
+      if (status === "debt") return 0;
+      if (status === "partial") return Math.min(total, Math.max(0, cleanNumber(p.paidAmount, 0)));
+      return total;
+    }
+
+    function getPurchaseDueAmount(p = {}) {
+      const total = cleanNumber(p.total || p.cost, 0);
+      return Math.max(0, total - getPurchasePaidAmount(p));
+    }
+
+    function purchasePaymentBadge(p = {}) {
+      const due = getPurchaseDueAmount(p);
+      const status = p.paymentStatus || (due > 0 ? "partial" : "paid");
+      if (status === "debt") return `<span class="badge red"><i class="fa-solid fa-user-clock"></i> دين</span>`;
+      if (status === "partial" || due > 0) return `<span class="badge yellow"><i class="fa-solid fa-circle-half-stroke"></i> جزئي</span>`;
+      return `<span class="badge green"><i class="fa-solid fa-circle-check"></i> مدفوعة</span>`;
+    }
+
     function renderPurchases() {
       const q = ($("purchaseTableSearch")?.value || "").trim().toLowerCase();
 
@@ -6563,6 +6614,9 @@
             <td>${money(p.cost)}</td>
             <td>${money(p.salePrice)}</td>
             <td class="money">${money(p.total)}</td>
+            <td>${purchasePaymentBadge(p)}</td>
+            <td class="money">${money(getPurchasePaidAmount(p))}</td>
+            <td class="money" style="color:${getPurchaseDueAmount(p) > 0 ? '#dc2626' : '#16a34a'}">${money(getPurchaseDueAmount(p))}</td>
             <td>${escapeHtml((state.paymentAccounts.find(a => a.id === (p.accountId || "cash"))?.name) || "الصندوق")}</td>
             <td>${escapeHtml(p.notes || "-")}</td>
             <td>
@@ -6578,7 +6632,7 @@
 
       $("purchasesTable").innerHTML =
         rows ||
-        `<tr><td colspan="13" class="muted" style="text-align:center">لا توجد مشتريات</td></tr>`;
+        `<tr><td colspan="16" class="muted" style="text-align:center">لا توجد مشتريات</td></tr>`;
     }
 
     function renderSupplierPayments() {
@@ -6799,7 +6853,8 @@
 
       const count = low.length + laterUnpaid.length + manualUnpaid.length;
 
-      $("notifBadge").textContent = count;
+      $("notifBadge").textContent = count > 999 ? "999+" : count;
+      $("notifBadge").title = count ? `${count} تنبيه` : "لا توجد تنبيهات";
       $("notifBadge").style.display = count ? "flex" : "none";
     }
 
@@ -7115,6 +7170,7 @@
 
         if (!product || !product.id) {
           $("purchaseUnitsPreview").value = "اختر المنتج أولاً";
+          updatePurchasePaymentUi();
           return;
         }
 
@@ -7131,6 +7187,21 @@
         }
 
         $("purchaseUnitsPreview").value = `${qty * factor} ${unitLabel(product.baseUnit, product.customUnit)}`;
+        updatePurchasePaymentUi();
+      }
+
+      function updatePurchasePaymentUi() {
+        const total = cleanNumber($("purchaseCost")?.value, 0);
+        const status = $("purchasePaymentStatus")?.value || "paid";
+        const paidInput = $("purchasePaidAmount");
+        if (paidInput) {
+          if (status === "paid") paidInput.value = total;
+          if (status === "debt") paidInput.value = 0;
+          paidInput.disabled = status !== "partial";
+        }
+        if ($("purchasePaidAmountBox")) $("purchasePaidAmountBox").style.opacity = status === "partial" ? "1" : ".62";
+        const paid = status === "paid" ? total : status === "debt" ? 0 : Math.min(total, Math.max(0, cleanNumber(paidInput?.value, 0)));
+        if ($("purchaseDuePreview")) $("purchaseDuePreview").value = money(Math.max(0, total - paid));
       }
 
       $("purchaseProductSearch").oninput = () => showSmartProductSuggestions($("purchaseProductSearch"), selectPurchaseProduct);
@@ -7138,6 +7209,9 @@
       $("purchaseUnit").onchange = updatePurchasePreview;
       $("purchaseQty").oninput = updatePurchasePreview;
       $("purchaseCartonUnits").oninput = updatePurchasePreview;
+      if ($("purchaseCost")) $("purchaseCost").oninput = updatePurchasePaymentUi;
+      if ($("purchasePaymentStatus")) $("purchasePaymentStatus").onchange = updatePurchasePaymentUi;
+      if ($("purchasePaidAmount")) $("purchasePaidAmount").oninput = updatePurchasePaymentUi;
 
       if (oldPurchase) {
         $("purchaseProduct").value = oldPurchase.productId || "";
@@ -7149,6 +7223,9 @@
         $("purchaseCartonUnits").value = cleanNumber(oldPurchase.cartonUnits, 1);
         $("purchaseNotes").value = oldPurchase.notes || "";
         if ($("purchaseAccountId")) $("purchaseAccountId").value = oldPurchase.accountId || "cash";
+        if ($("purchasePaymentStatus")) $("purchasePaymentStatus").value = oldPurchase.paymentStatus || (cleanNumber(oldPurchase.dueAmount, 0) > 0 ? "partial" : "paid");
+        if ($("purchasePaidAmount")) $("purchasePaidAmount").value = cleanNumber(oldPurchase.paidAmount ?? oldPurchase.total, 0);
+        updatePurchasePaymentUi();
 
         const prod = getProductById(oldPurchase.productId);
         if (prod) selectPurchaseProduct(prod);
@@ -7181,6 +7258,10 @@
 
         const enteredCost = cleanNumber($("purchaseCost").value, 0);
         const enteredSale = cleanNumber($("purchaseSalePrice").value, 0);
+        const paymentStatus = $("purchasePaymentStatus")?.value || "paid";
+        let paidAmount = paymentStatus === "paid" ? enteredCost : paymentStatus === "debt" ? 0 : cleanNumber($("purchasePaidAmount")?.value, 0);
+        paidAmount = Math.min(enteredCost, Math.max(0, paidAmount));
+        const dueAmount = Math.max(0, enteredCost - paidAmount);
 
         const baseCost = qtyBase > 0 ? enteredCost / qtyBase : product.costPrice;
         const baseSale = factor > 0 && enteredSale > 0 ? enteredSale / factor : product.salePrice;
@@ -7199,6 +7280,9 @@
           cost: enteredCost,
           salePrice: enteredSale || product.displaySalePrice || product.salePrice,
           total: enteredCost,
+          paymentStatus,
+          paidAmount,
+          dueAmount,
           accountId: $("purchaseAccountId")?.value || oldPurchase?.accountId || "cash",
           notes: $("purchaseNotes").value.trim(),
           createdAt: oldPurchase?.createdAt || Date.now(),
@@ -8450,7 +8534,8 @@
 
       if (!confirm("حذف الدين اليدوي؟ سيتم إعادة حساب رصيد العميل.")) return;
 
-      customer.manualDebts = (customer.manualDebts || []).filter(d => d.id !== debtId);
+      customer.deletedManualDebtIds = Array.from(new Set([...(customer.deletedManualDebtIds || []), String(debtId)]));
+      customer.manualDebts = (customer.manualDebts || []).filter(d => String(d.id || d.debtId || "") !== String(debtId));
       customer.updatedAt = Date.now();
 
       await saveLocal("customers", normalizeCustomer(customer), true);
@@ -8603,7 +8688,8 @@
 
       if (!confirm("حذف دفعة الزبون؟ سيتم إعادة حساب الرصيد.")) return;
 
-      customer.payments = (customer.payments || []).filter(p => p.id !== paymentId);
+      customer.deletedPaymentIds = Array.from(new Set([...(customer.deletedPaymentIds || []), String(paymentId)]));
+      customer.payments = (customer.payments || []).filter(p => String(p.id || p.paymentId || "") !== String(paymentId));
       customer.updatedAt = Date.now();
 
       await saveLocal("customers", normalizeCustomer(customer), true);
@@ -10208,9 +10294,10 @@
     }
 
     function openNotifications() {
-      const low = state.products.filter(p =>
+      const allLow = state.products.filter(p =>
         cleanNumber(p.stock) <= cleanNumber(p.lowStock || state.settings?.lowStock || 5)
-      );
+      ).sort((a,b) => cleanNumber(a.stock) - cleanNumber(b.stock));
+      const low = allLow.slice(0, 160);
 
       const laterUnpaid = state.invoices.filter(i =>
         i.paymentMethod === "later_app" && i.status !== "paid"
@@ -10226,7 +10313,7 @@
 
       openModal("التنبيهات", `
         <div class="card" style="box-shadow:none;margin-bottom:12px">
-          <h3 style="margin:0 0 10px;font-weight:900">البضاعة الناقصة</h3>
+          <h3 style="margin:0 0 10px;font-weight:900">البضاعة الناقصة ${allLow.length > low.length ? `<span class="badge yellow">عرض ${low.length} من ${allLow.length}</span>` : ""}</h3>
           ${
             low.map(p => `<div class="debt-card" data-edit-product="${p.id}">
               <div>
@@ -13072,13 +13159,36 @@
   async function openFastScanner(mode="sale",inputId=""){
     try{ await loadQrLib(); }catch{ return toast("تعذر تحميل قارئ الباركود"); }
     if(!window.Html5Qrcode) return toast("تعذر تشغيل قارئ الباركود");
-    await stopScanner(); scanMode=mode; targetInput=inputId||""; const page=scannerDom(); const title=$("oskarFastTitle"), added=$("oskarFastAdded"); if(added) added.innerHTML=""; if(title) title.textContent=mode==="product"?"قراءة باركود المنتج":"قراءة باركود للبيع"; page.classList.add("show");
+    await stopScanner();
+    scanMode=mode; targetInput=inputId||"";
+    const page=scannerDom();
+    const reader=$("oskarFastReader");
+    if(reader) reader.innerHTML="";
+    const title=$("oskarFastTitle"), added=$("oskarFastAdded");
+    if(added) added.innerHTML="";
+    if(title) title.innerHTML=(mode==="product"?"قراءة باركود المنتج":"قراءة باركود للبيع") + '<small>الكاميرا مستقلة عن تحميل المخزون وتقرأ من فهرس محلي سريع</small>';
+    page.classList.add("show");
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     try{
-      const formats = window.Html5QrcodeSupportedFormats ? [Html5QrcodeSupportedFormats.QR_CODE,Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,Html5QrcodeSupportedFormats.CODE_93,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.CODABAR,Html5QrcodeSupportedFormats.DATA_MATRIX,Html5QrcodeSupportedFormats.AZTEC,Html5QrcodeSupportedFormats.PDF_417] : undefined;
+      const F = window.Html5QrcodeSupportedFormats;
+      const formats = F ? [F.QR_CODE,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128,F.CODE_39,F.CODE_93,F.ITF,F.CODABAR,F.DATA_MATRIX,F.AZTEC,F.PDF_417] : undefined;
       scanner=new Html5Qrcode("oskarFastReader", formats?{formatsToSupport:formats,verbose:false}:undefined);
-      const config={fps:30,qrbox:(w,h)=>({width:Math.floor(w*.82),height:Math.floor(h*.34)}),aspectRatio:1.7777778,disableFlip:false,experimentalFeatures:{useBarCodeDetectorIfSupported:true},videoConstraints:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:"continuous"},{exposureMode:"continuous"},{whiteBalanceMode:"continuous"}]}};
-      await scanner.start({facingMode:"environment"},config,(txt)=>{ const c=String(txt||"").trim(); const t=Date.now(); if(!c) return; if(c===lastCode && t-lastAt<1400) return; lastCode=c; lastAt=t; handleCode(c); },()=>{}); running=true;
-    }catch(e){ console.error(e); await stopScanner(); toast("اسمح باستخدام الكاميرا وتأكد أن الرابط HTTPS"); }
+      const fastConfig={fps:18,qrbox:(w,h)=>({width:Math.floor(Math.min(w*.88,560)),height:Math.floor(Math.min(h*.34,260))}),disableFlip:false,rememberLastUsedCamera:true,experimentalFeatures:{useBarCodeDetectorIfSupported:true},videoConstraints:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}}};
+      const onScan=(txt)=>{ const c=String(txt||"").trim(); const t=Date.now(); if(!c) return; if(c===lastCode && t-lastAt<900) return; lastCode=c; lastAt=t; handleCode(c); };
+      const start = scanner.start({facingMode:{ideal:"environment"}}, fastConfig, onScan, ()=>{});
+      await Promise.race([start, new Promise((_,rej)=>setTimeout(()=>rej(new Error("camera-start-timeout")),8500))]);
+      running=true;
+    }catch(e){
+      console.warn("fast scanner first start failed", e);
+      try{
+        if(scanner){ try{ await scanner.clear(); }catch{} }
+        const reader=$("oskarFastReader"); if(reader) reader.innerHTML="";
+        scanner=new Html5Qrcode("oskarFastReader");
+        const simple={fps:12,qrbox:(w,h)=>({width:Math.floor(w*.78),height:Math.floor(h*.30)}),disableFlip:false,videoConstraints:{facingMode:"environment"}};
+        await scanner.start({facingMode:"environment"}, simple, (txt)=>{ const c=String(txt||"").trim(); if(c) handleCode(c); }, ()=>{});
+        running=true;
+      }catch(err){ console.error(err); await stopScanner(); toast("اسمح باستخدام الكاميرا وتأكد أن الرابط HTTPS"); }
+    }
   }
   function bindFastScannerButtons(){
     window.addEventListener("click",function(e){
@@ -16297,7 +16407,7 @@
       r.in += v; r.sales += v; r.count++;
     });
     (data.expenses || []).forEach(e => { const r=ensure(e.accountId || "cash"), v=num(e.amount); r.out+=v; r.expenses+=v; r.count++; });
-    (data.purchases || []).forEach(p => { const r=ensure(p.accountId || "cash"), v=num(p.total || p.cost); r.out+=v; r.purchases+=v; r.count++; });
+    (data.purchases || []).forEach(p => { const total=num(p.total || p.cost), status=p.paymentStatus || (num(p.dueAmount)>0 ? "partial" : "paid"); const paid=status==="debt" ? 0 : status==="partial" ? Math.min(total, Math.max(0, num(p.paidAmount))) : total; const r=ensure(p.accountId || "cash"); r.out+=paid; r.purchases+=paid; r.count++; });
     (data.supplierPayments || []).forEach(p => { const r=ensure(p.accountId || "cash"), v=num(p.amount); r.out+=v; r.supplierPayments+=v; r.count++; });
     (data.wages || []).forEach(w => { const r=ensure(w.accountId || "cash"), v=num(w.amount || w.bonus || w.salary); r.out+=v; r.wages+=v; r.count++; });
     (data.movements || []).forEach(m => {
@@ -17498,6 +17608,64 @@
 
   if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", prewarmExportLibs, {once:true}); else prewarmExportLibs();
   window.addEventListener("load", prewarmExportLibs, {once:true});
+})();
+</script>
+
+
+<!-- OSKAR_MEGA_MALL_STABILITY_PATCH_2026_05_05 -->
+<style id="oskarMegaMallStabilityStyle20260505">
+  .oskar-mega-note{background:#ecfdf5;border:1px solid #bbf7d0;color:#065f46;border-radius:18px;padding:10px 12px;font-size:12px;font-weight:900;line-height:1.8;margin:10px 0}
+  .oskar-purchase-credit-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:10px 0 14px}
+  .oskar-purchase-credit-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:20px;padding:12px;min-height:78px;display:flex;flex-direction:column;justify-content:center;gap:6px}
+  .oskar-purchase-credit-card span{font-size:12px;color:#64748b;font-weight:900}.oskar-purchase-credit-card b{font-size:19px;font-weight:900;color:#0f172a;direction:ltr;text-align:right}
+  @media(max-width:720px){.oskar-purchase-credit-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+<script id="oskarMegaMallStabilityPatch20260505">
+(function(){
+  "use strict";
+  if(window.__OSKAR_MEGA_MALL_STABILITY_20260505__) return;
+  window.__OSKAR_MEGA_MALL_STABILITY_20260505__ = true;
+  const $ = id => document.getElementById(id);
+  const num = (v,f=0)=>{ const n=Number(String(v??"").replace(",",".")); return Number.isFinite(n)?n:f; };
+  const money = v => typeof window.money === "function" ? window.money(v) : "₪ " + num(v).toFixed(3);
+  const periodFilter = (arr)=>{
+    const p=$("reportsPeriod")?.value||"today", c=$("reportsCustomDate")?.value||"";
+    const now=new Date(), start=new Date(), end=new Date();
+    if(p==="all") return arr||[];
+    if(p==="today"){start.setHours(0,0,0,0);end.setHours(23,59,59,999);} else if(p==="week"){start.setDate(now.getDate()-7);start.setHours(0,0,0,0);end.setHours(23,59,59,999);} else if(p==="month"){start.setMonth(now.getMonth()-1);start.setHours(0,0,0,0);end.setHours(23,59,59,999);} else if(p==="year"){start.setFullYear(now.getFullYear()-1);start.setHours(0,0,0,0);end.setHours(23,59,59,999);} else if(p==="custom"){ if(!c) return []; const d=new Date(c); start.setTime(d.getTime()); start.setHours(0,0,0,0); end.setTime(d.getTime()); end.setHours(23,59,59,999); }
+    return (arr||[]).filter(x=>num(x.createdAt)>=start.getTime()&&num(x.createdAt)<=end.getTime());
+  };
+  function purchasePaid(p){ const total=num(p.total||p.cost), status=p.paymentStatus || (num(p.dueAmount)>0?"partial":"paid"); if(status==="debt") return 0; if(status==="partial") return Math.min(total, Math.max(0,num(p.paidAmount))); return total; }
+  function purchaseDue(p){ return Math.max(0, num(p.total||p.cost)-purchasePaid(p)); }
+  function ensurePurchaseCreditSummary(){
+    const area=$("reportsPrintArea"); if(!area) return;
+    let box=$("oskarPurchaseCreditSummary");
+    if(!box){
+      const detail=area.querySelector(".card .stat-grid")?.closest(".card") || area.querySelector(".card");
+      if(!detail) return;
+      box=document.createElement("div"); box.id="oskarPurchaseCreditSummary"; box.className="card"; box.style.marginBottom="14px";
+      box.innerHTML='<h2 style="margin:0 0 10px;font-size:19px;font-weight:900"><i class="fa-solid fa-truck-ramp-box"></i> تقرير دفع المشتريات</h2><div class="oskar-purchase-credit-grid"><div class="oskar-purchase-credit-card"><span>إجمالي المشتريات</span><b id="oskarPurTotal">₪ 0.00</b></div><div class="oskar-purchase-credit-card"><span>المدفوع فعلياً</span><b id="oskarPurPaid" style="color:#16a34a">₪ 0.00</b></div><div class="oskar-purchase-credit-card"><span>المتبقي للموردين</span><b id="oskarPurDue" style="color:#dc2626">₪ 0.00</b></div><div class="oskar-purchase-credit-card"><span>عدد فواتير الدين/الجزئي</span><b id="oskarPurCreditCount" style="color:#d97706">0</b></div></div><div class="oskar-mega-note"><i class="fa-solid fa-circle-info"></i> أرصدة حسابات الدفع تخصم المدفوع فقط، أما دين المشتريات والمتبقي فيظهر هنا ولا يخصم من الصندوق إلا عند تسجيل دفعة.</div>';
+      detail.insertAdjacentElement("afterend",box);
+    }
+    const rows=periodFilter(window.state?.purchases||[]);
+    const total=rows.reduce((s,p)=>s+num(p.total||p.cost),0), paid=rows.reduce((s,p)=>s+purchasePaid(p),0), due=rows.reduce((s,p)=>s+purchaseDue(p),0);
+    const creditCount=rows.filter(p=>purchaseDue(p)>0).length;
+    if($("oskarPurTotal")) $("oskarPurTotal").textContent=money(total);
+    if($("oskarPurPaid")) $("oskarPurPaid").textContent=money(paid);
+    if($("oskarPurDue")) $("oskarPurDue").textContent=money(due);
+    if($("oskarPurCreditCount")) $("oskarPurCreditCount").textContent=String(creditCount);
+  }
+  function maintain(){ try{ if($("page-reports")?.classList.contains("active")) ensurePurchaseCreditSummary(); }catch(e){ console.warn(e); } }
+  const oldRenderReports=window.renderReports;
+  if(typeof oldRenderReports==="function" && !oldRenderReports.__oskarMegaMallWrapped){
+    window.renderReports=function(){ const r=oldRenderReports.apply(this,arguments); setTimeout(ensurePurchaseCreditSummary,0); return r; };
+    window.renderReports.__oskarMegaMallWrapped=true;
+  }
+  document.addEventListener("change", e=>{ if(["reportsPeriod","reportsCustomDate"].includes(e.target?.id)) setTimeout(ensurePurchaseCreditSummary,80); }, true);
+  document.addEventListener("click", e=>{ if(e.target.closest?.('[data-page="reports"],[data-page-jump="reports"]')) setTimeout(ensurePurchaseCreditSummary,160); }, true);
+  document.addEventListener("visibilitychange",()=>{ if(document.hidden){ try{ window.stopScanner?.(); window.stopFloatingScanner?.(); }catch{} } });
+  setInterval(maintain, 1500);
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",()=>setTimeout(maintain,500),{once:true}); else setTimeout(maintain,500);
 })();
 </script>
 
